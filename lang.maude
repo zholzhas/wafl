@@ -1,0 +1,382 @@
+fmod LANG-SYNTAX is
+    protecting QID-LIST .
+
+    sort Token . 
+    op token : Qid -> Token 
+        [special (id-hook Bubble     (1 1) 
+                op-hook qidSymbol (<Qids> : ~> Qid)
+                id-hook Exclude (pass, function, `(, `), ;, =, return )) ] .
+    --- subsort Token < ExprAtom .
+
+    sort Expr .
+    subsort Token < Expr .
+    sort Stmt .
+    sort Decl .
+    sort TopLevel .
+    subsort Stmt Decl < TopLevel .
+    sorts Arg ArgList .
+    subsort Expr < Arg < ArgList .
+    sort TokenList .
+    subsort Token < TokenList .
+    subsort TokenList < ArgList .
+
+    op _; : Expr -> Stmt .
+    op _+_ : Expr Expr -> Expr [gather (e E)].
+    op `(_`) : Expr -> Expr .
+    op _=_; : Expr Expr -> Stmt .
+    op pass ; : -> Stmt .
+    op __ : Stmt Stmt -> Stmt [assoc prec 50] .
+    op function_`(`) {_} : Token Stmt -> Stmt .
+    op function_`(_`) {_} : Token TokenList Stmt -> Stmt .
+    op _`(`) : Token -> Expr .
+    op _`(_`) : Token ArgList -> Expr [prec 15] .
+    op _,_ : ArgList ArgList -> ArgList [assoc] .
+    op return_; : Expr -> Stmt .
+endfm
+
+fmod LANG-AST is
+
+    protecting INT .
+    protecting STRING .
+
+    sort AST .
+
+    sort ExprAST .
+    sort StmtAST .
+    sort Ident .
+    subsort ExprAST < StmtAST < AST .
+    subsort Ident < ExprAST .
+    sort DeclAST .
+    subsort DeclAST < StmtAST .
+
+    sorts ArgAST ArgListAST ParamAST ParamListAST .
+    subsort ExprAST < ArgAST < ArgListAST .
+    subsort Ident < ParamListAST .
+    subsort ParamListAST < ArgListAST .
+
+    op empty : -> ParamListAST [ctor] .
+    op _,_ : ArgListAST ArgListAST -> ArgListAST [ctor assoc id: empty] .
+    op _,_ : ParamListAST ParamListAST -> ParamListAST [ditto] .
+    op _,_ : ArgListAST ParamListAST -> ArgListAST [ditto] .
+    op _,_ : ParamListAST ArgListAST -> ArgListAST [ditto] .
+
+    op id : String -> Ident [ctor] .
+    op str : String -> ExprAST [ctor] .
+    op int : Int -> ExprAST [ctor] .
+    op $add : ExprAST ExprAST -> ExprAST [ctor] .
+    op assign : ExprAST ExprAST -> StmtAST [ctor] .
+    op pass : -> StmtAST [ctor] .
+    op return : ExprAST -> StmtAST [ctor] .
+    op abort : -> StmtAST [ctor] .
+    op _;_ : StmtAST StmtAST -> StmtAST [ctor assoc id: pass] .
+
+    op function : String FuncParams StmtAST -> DeclAST [ctor] .
+    op function : String FuncParams -> DeclAST [ctor] .
+    op call : String CallArgs -> ExprAST [ctor] .
+
+    sort CallArgs .
+    op args : ArgListAST -> CallArgs [ctor] .
+
+    sort FuncParams .
+    op params : ParamListAST -> FuncParams [ctor] .
+endfm
+
+fmod LANG-SEMANTICS is
+    protecting LANG-AST .
+    
+    sort State .
+
+    op [_|_|_] : FuncStorage VarStorage CallStack -> State [ctor prec 50 gather (e e E)] .
+
+    sort FuncStorage .
+    sort Func .
+    subsort Func < FuncStorage .
+
+    op empty : -> FuncStorage [ctor] .
+    op _;_ : FuncStorage FuncStorage -> FuncStorage [ctor comm assoc id: empty prec 45] . 
+
+    op func : String FuncParams StmtAST -> Func [ctor] .
+
+    sort StoredVar .
+    sort VarStorage .
+    subsort StoredVar < VarStorage .
+
+    op empty : -> VarStorage [ctor] .
+    op _;_ : VarStorage VarStorage -> VarStorage [ctor comm assoc id: empty prec 45] .
+    
+    op _:=_ : String Value -> StoredVar [ctor] .
+    op returnVal : Value -> StoredVar [ctor] .
+
+    sort Value .
+    op void : -> Value [ctor] .
+    op strVal : String -> Value [ctor] .
+    op intVal : Int -> Value [ctor] .
+
+    
+    sort EvalResult .
+    op {_,_} : Value State -> EvalResult [ctor] .
+
+    var V V' : Value .
+    var St : State .
+
+    op getValue : EvalResult -> Value .
+    eq getValue({V, St}) = V .
+
+    op getState : EvalResult -> State .
+    eq getState({V, St}) = St .
+
+    var I : Int .
+
+    op isInt : Value -> Bool .
+    eq isInt(intVal(I)) = true .
+    eq isInt(V) = false [owise] .
+
+    op isInt : EvalResult -> Bool .
+    eq isInt({V, St}) = isInt(V) .
+
+    op getInt : Value -> Int .
+    eq getInt(intVal(I)) = I .
+
+    var STR : String .
+    
+    op isStr : Value -> Bool .
+    eq isStr(strVal(STR)) = true .
+    eq isStr(V) = false [owise] .
+
+    op isStr : EvalResult -> Bool .
+    eq isStr({V, St}) = isStr(V) .
+
+    op getStr : Value -> String .
+    eq getStr(strVal(STR)) = STR .
+
+    vars E E1 : ExprAST .
+    vars S S1 : StmtAST .
+
+    op evalExpr : ExprAST State -> EvalResult .
+    op evalStmt : StmtAST State -> EvalResult .
+
+    sort CallStack .
+    subsort State < CallStack .
+    op empty : -> CallStack [ctor] .
+    op aborted : VarStorage -> State [ctor] .
+
+    vars STACK STACK' : CallStack .
+
+    eq evalStmt(E, St) = evalExpr(E, St) .
+
+    ceq evalExpr($add(E, E1), St) = { intVal(getInt(getValue(evalExpr(E, St))) + getInt(getValue(evalExpr(E1, St)))), St }
+        if isInt(evalExpr(E, St)) and isInt(evalExpr(E1, St)) .
+
+    var VARS VARS' : VarStorage .
+    var FUNCS : FuncStorage .
+    vars PARAMS PARAMS' : FuncParams .
+    var ARGS : CallArgs .
+    
+    op getVars : State -> VarStorage .
+    eq getVars([ FUNCS | VARS | STACK ]) = VARS .
+
+    eq evalExpr(id(STR), [ FUNCS | STR := V ; VARS | STACK ]) = { V, [ FUNCS | STR := V ; VARS | STACK ]} .
+    eq evalExpr(int(I), St) = { intVal(I), St } .
+    eq evalExpr(str(STR), St) = { strVal(STR), St } .
+
+    ceq evalStmt(S ; S1, St) = evalStmt(S1, getState(evalStmt(S, St))) if S =/= pass and S1 =/= pass .
+    eq evalStmt(pass, St) = { void, St } .
+
+    eq evalStmt(assign(id(STR), E), [ FUNCS | VARS | STACK ]) = { void, [ FUNCS | assignVar(getVars(getState(evalExpr(E, [ FUNCS | VARS | STACK ] ))), STR, E, [ FUNCS | VARS | STACK ]) | STACK ] } [owise] .
+    eq evalStmt(return(E), [ FUNCS | VARS | STACK ]) = { void, [ FUNCS | returnVal(getValue(evalExpr(E, [ FUNCS | VARS | STACK ]))) ; VARS | STACK ] } [owise] .
+
+    eq evalStmt(function(STR, PARAMS, S), [ func(STR, PARAMS', S1) ; FUNCS | VARS | STACK ]) = { void, [ func(STR, PARAMS, S) ; FUNCS | VARS | STACK ] } .
+    eq evalStmt(function(STR, PARAMS, S), [ FUNCS | VARS | STACK ]) = { void, [ func(STR, PARAMS, S) ; FUNCS | VARS | STACK ] } [owise] .
+
+    eq evalExpr(call(STR, ARGS), [ func(STR, PARAMS, S) ; FUNCS | VARS | STACK ]) = { 
+        getReturnValue(evalStmt(
+            S, 
+            [ 
+                func(STR, PARAMS, S) ; FUNCS 
+                | addArgs(VARS, ARGS, PARAMS, [ func(STR, PARAMS, S) ; FUNCS | VARS | STACK ]) 
+                | STACK
+            ]
+        )),
+        [ func(STR, PARAMS, S) ; FUNCS |
+        rollbackVars(PARAMS, VARS, getState(evalStmt(
+            S, 
+            [ 
+                func(STR, PARAMS, S) ; FUNCS 
+                | addArgs(VARS, ARGS, PARAMS, [ func(STR, PARAMS, S) ; FUNCS | VARS | STACK ]) 
+                | STACK 
+            ]
+        ))) | STACK
+        ]
+    }
+    .
+
+    eq evalExpr(S, aborted(VARS)) = { void, aborted(VARS) } .
+    eq evalStmt(S, aborted(VARS)) = { void, aborted(VARS) } .
+    eq evalStmt(abort, [ FUNCS | VARS | STACK ]) = { void, aborted(VARS) } .
+
+    op getReturnValue : EvalResult -> Value .
+    eq getReturnValue({ void, [ FUNCS | returnVal(V) ; VARS | STACK ] }) = V .
+    eq getReturnValue({ void, aborted(VARS) }) = void .
+
+
+    var ARG : ArgAST .
+    var ARGLIST : ArgListAST .
+    var PARAM : ParamAST .
+    var PARAMLIST : ParamListAST .
+
+    op rollbackVars : FuncParams VarStorage State -> VarStorage .
+    eq rollbackVars(params(id(STR), PARAMLIST), STR := V ; VARS, [ FUNCS | STR := V' ; VARS' | STACK ])
+    =
+        STR := V ; rollbackVars(params(PARAMLIST), VARS, [ FUNCS | VARS' | STACK ]) .
+
+    eq rollbackVars(params(id(STR), PARAMLIST), VARS, [ FUNCS | STR := V' ; VARS' | STACK ])
+    =
+        rollbackVars(params(PARAMLIST), VARS, [ FUNCS | VARS' | STACK ]) [owise] .
+
+    eq rollbackVars(params(empty), VARS, [ FUNCS | VARS' | STACK ])
+    =
+        VARS' .
+
+    eq rollbackVars(params(PARAMLIST), VARS, aborted(VARS'))
+    =
+        VARS' .
+
+    op assignVar : VarStorage String ExprAST State -> VarStorage .
+    eq assignVar((STR := V ; VARS), STR, E, St) = STR := getValue(evalExpr(E, St)) ; VARS .
+    eq assignVar((VARS), STR, E, St) = STR := getValue(evalExpr(E, St)) ; VARS [owise] .
+
+    op addArgs : VarStorage CallArgs FuncParams State -> VarStorage .
+    eq addArgs(VARS, args(E, ARGLIST), params(id(STR), PARAMLIST), St) = addArgs(assignVar(VARS, STR, E, St), args(ARGLIST), params(PARAMLIST), St) .
+    eq addArgs(VARS, args(empty), params(empty), St) = VARS .
+endfm
+
+fmod IDENTIFIER is 
+    protecting STRING .
+    protecting BOOL .
+
+    var S : String .
+
+    op valid : String -> Bool .
+    eq valid(S) = startsWithLetter(S) and onlyValidChars(S) .
+
+    op startsWithLetter : String -> Bool .
+    eq startsWithLetter(S) = (ascii(substr(S, 0, 1)) >= ascii("A") and ascii(substr(S, 0, 1)) <= ascii("Z"))
+                            or (ascii(substr(S, 0, 1)) >= ascii("a") and ascii(substr(S, 0, 1)) <= ascii("z"))
+     .
+
+    op onlyValidChars : String -> Bool .
+    ceq onlyValidChars(S) = validChar(substr(S, 0, 1)) and onlyValidChars(substr(S, 1, length(S))) 
+        if S =/= "" .
+    eq onlyValidChars("") = true .
+
+    op validChar : Char -> Bool .
+    eq validChar(S) = startsWithLetter(S) or (S == "_") or (ascii(S) >= ascii("0") and ascii(S) <= ascii("9")).
+endfm
+
+fmod LANG is
+    protecting META-LEVEL .
+    protecting LANG-AST .
+    protecting STRING .
+    protecting IDENTIFIER .
+
+    protecting LEXICAL .
+
+    vars T T1 T2 : Term .
+    vars Q Q1 Q2 : Qid .
+
+    op process : Term ~> AST .
+
+    ceq process('token[T]) = int(downTerm(getTerm(parsePredefined(T, 'INT, 'Int)), 0)) 
+    if parsePredefined(T, 'INT, 'Int) :: ResultPair .
+
+    ceq process('token[T]) = str(downTerm(getTerm(parsePredefined(T, 'STRING, 'String)), "")) 
+    if parsePredefined(T, 'STRING, 'String) :: ResultPair .
+
+    ceq process('token[T]) = id(string(downTerm(T, '$err))) 
+    if valid(string(downTerm(T, '$err))) .
+
+    eq process('_+_[T, T1]) = $add(process(T), process(T1)) .
+
+    eq process('`(_`)[T]) = process(T) .
+    eq process('_;[T]) = process(T) .
+
+    eq process('_=_;[T, T1]) = assign(process(T), process(T1)) .
+    eq process('pass`;.Stmt) = pass .
+    eq process('return_;[T]) = return(process(T)) .
+
+    eq process('__[T, T1]) = process(T) ; process(T1) .
+
+    eq process('function_`(`)`{_`}[T, T1]) = function(extractId(process(T)), params(empty), process(T1)) .
+    eq process('function_`(_`)`{_`}[T, T1, T2]) = function(extractId(process(T)), params(processParams(T1)), process(T2)) .
+    eq process('_`(`)[T]) = call(extractId(process(T)), args(empty)) .
+    eq process('_`(_`)[T, T1]) = call(extractId(process(T)), args(processArgs(T1))) .
+
+    op processArgs : Term ~> ArgListAST .
+    eq processArgs(T) = process(T) [owise] .
+    eq processArgs('_`,_[T, T1]) = processArgs(T) , processArgs(T1) .
+
+    op processParams : Term ~> ParamListAST .
+    eq processParams(T) = process(T) [owise] .
+    eq processParams('_`,_[T, T1]) = processParams(T) , processParams(T1) .
+
+    var STR : String .
+
+    op extractId : AST ~> String .
+    eq extractId(id(STR)) = STR . 
+
+    op parsePredefined : Qid Qid Qid -> ResultPair? .
+    eq parsePredefined(Q2, Q, Q1) = metaParse(upModule(Q, false), downTerm(Q2, 'error), Q1) .
+endfm
+
+
+fmod LANG-IO is
+    protecting LANG .
+    protecting LANG-SEMANTICS .
+    extending LEXICAL .
+
+    var S : String .
+    var QID : Qid .
+    var QIDS : QidList .
+
+    op preParse : String -> ResultPair? .
+    eq preParse(S) = metaParse(upModule('LANG-SYNTAX, false), tokenize(S), 'TopLevel) .
+
+    op parse : String -> AST .
+    eq parse(S) = process(getTerm(metaParse(upModule('LANG-SYNTAX, false), tokenize(S), 'TopLevel))) .
+
+    op execute : String -> EvalResult .
+    eq execute(S) = evalStmt(parse(S), [empty | empty | empty]) .
+endfm
+
+--- red in LANG : downTerm(''12, 'err) .
+
+--- red in LANG : parsePredefined('"123", 'STRING, 'String) .
+
+red execute("function main(a, b) { g = a + 6 ; return a + b ; } a = 1 ; r = 0 ; c = main(2, 5) ;") .
+--- red metaParse(upModule('LANG-SYNTAX, false), tokenize("return a ;"), 'Stmt) .
+--- red in LANG : metaParse(upModule('LANG-SYNTAX, false), 'function 'main '`( '`) '`{ 'pass '; '`}, 'Decl) .
+--- red in LANG : metaParse(upModule('LANG-SYNTAX, false), tokenize("function main() { pass ; }"), 'Decl) .
+--- red in LANG : metaParse(upModule('LANG-SYNTAX, false), tokenize("a = b ;"), 'Stmt) .
+--- red in LANG : tokenize("a = b ;") .
+--- red in LANG : metaParse(upModule('LANG-SYNTAX, false), 'function, 'Token) .
+
+
+--- red in LANG-SYNTAX : 
+---     downTerm(getTerm(metaParse(
+---         upModule('LANG-SYNTAX, false),
+---         'a '+ '12,
+---         'Expr
+---     )), ')
+--- .
+
+--- fmod UP-DOWN-TEST is 
+---     protecting META-LEVEL . 
+---     sort Foo . 
+---     ops a b c d : -> Foo . 
+---     op f : Foo Foo -> Foo . 
+---     op error : -> [Foo] . 
+---     eq c = d . 
+--- endfm
+
+--- reduce in UP-DOWN-TEST : 
+---       downTerm(upTerm(f(a, f(b, c))), error) . 

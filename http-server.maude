@@ -1,0 +1,438 @@
+load lang.maude
+
+fmod SERVER-SYNTAX is
+    protecting STRING .
+    protecting QID-LIST .
+
+    sort Code .
+    op codeTokens : QidList -> Code 
+        [special 
+            (id-hook Bubble      (1 -1) 
+            op-hook qidListSymbol (__ : QidList QidList ~> QidList) 
+            op-hook qidSymbol    (<Qids> : ~> Qid) 
+            id-hook Exclude     (!`}))] .
+    
+    
+    sort Token . 
+    op token : Qid -> Token 
+        [special (id-hook Bubble     (1 1) 
+                op-hook qidSymbol (<Qids> : ~> Qid)
+                id-hook Exclude (service)) ] .
+
+
+    sort Component .
+
+    op code`{!_!`} : Code -> Component [ctor] .
+    op routes {_} : Router -> Component [ctor] .
+
+    sort Router .
+    sort Route .
+    subsort Route < Router .
+
+    op _->_ : String String -> Route [ctor] .
+
+    op noRoutes : -> Router [ctor] .
+    op __ : Router Router -> Router [ctor comm assoc id: noRoutes] . 
+
+    sort ComponentList .
+    subsort Component < ComponentList .
+
+    op empty : -> ComponentList [ctor] .
+    op __ : ComponentList ComponentList -> ComponentList [ctor comm assoc id: empty] .
+
+    sort Server .
+    op {_} : ComponentList -> Server [ctor] .
+    op service__; : Token Server -> Service [ctor] .
+
+    sorts Service ServiceList .
+    subsort Service < ServiceList .
+    op none : -> ServiceList [ctor] .
+    op __ : ServiceList ServiceList -> ServiceList [ctor assoc comm id: none] .
+
+endfm
+
+mod SERVER-SEMANTICS is
+    extending LANG-SEMANTICS .
+    protecting CONFIGURATION .
+    protecting NAT .
+
+    sort SemComponent .
+
+    op code : StmtAST -> SemComponent [ctor] .
+    op routes : SemRouter -> SemComponent [ctor] .
+    op process : SemConnection StmtAST State -> SemComponent [ctor] .
+
+    sorts SemConnId SemConnection SemRequest SemResponse .
+    subsort Nat < SemConnId .
+
+    subsort SemConnection < Object .
+    op connectionManager : Nat -> Object [ctor] .
+    op connection : SemConnId String String SemRequest -> SemConnection [ctor] .
+    op connection : SemConnId String String SemRequest SemResponse -> SemConnection [ctor] .
+
+    op request : String String -> SemRequest [ctor] .
+    op response : String -> SemResponse [ctor] .
+    op error : String -> SemResponse [ctor] .
+
+    sort SemRouter .
+    sort SemRoute .
+    subsort SemRoute < SemRouter .
+
+    op route : String String -> SemRoute [ctor] .
+
+    op $noRoutes : -> SemRouter [ctor] .
+    op _,_ : SemRouter SemRouter -> SemRouter [ctor comm assoc id: $noRoutes] . 
+
+
+    sort SemComponentList .
+    subsort SemComponent < SemComponentList .
+
+    op $empty : -> SemComponentList [ctor] .
+    op _,_ : SemComponentList SemComponentList -> SemComponentList [ctor comm assoc id: $empty] .
+
+    sort SemServer .
+    op server : SemComponentList -> SemServer [ctor] .
+
+    sort SemService .
+    subsort SemService < Object .
+    op service : String SemServer -> SemService [ctor] .
+
+    op sendRequest : String SemRequest -> StmtAST [ctor] .
+    op sendResponse : ExprAST -> StmtAST [ctor] .
+
+    op serverFunctions : -> StmtAST .
+    eq serverFunctions =
+        function("respond", params(id("payload")), sendResponse(id("payload")) ; abort) .
+
+    op payload : String -> StoredVar [ctor] .
+
+    op evalServerStmt : StmtAST State -> EvalResult .
+
+    
+    var VARS VARS' : VarStorage .
+    var FUNCS : FuncStorage .
+    vars PARAMS PARAMS' : FuncParams .
+    var ARGS : CallArgs .
+    var CONN : SemConnection .
+    var STACK : CallStack .
+    var St : State .
+    var ID : Nat .
+    var S S' PATH BODY RESP : String .
+    var REQ : SemRequest .
+    var CODE CODE' : StmtAST .
+    var EXPR : ExprAST .
+    var V : Value .
+
+    eq evalServerStmt(CODE, [ FUNCS | VARS | STACK ]) = evalStmt(CODE, [ FUNCS | VARS | STACK ]) [owise] .
+    ceq evalServerStmt(CODE ; CODE', [ FUNCS | VARS | STACK ]) 
+    = evalServerStmt(CODE', getState(evalServerStmt(CODE, [ FUNCS | VARS | STACK ])))
+    if CODE =/= pass and CODE' =/= pass .
+
+    --- eq evalStmt(CODE, abort(St)) = { void, abort(St) } .
+    eq evalStmt(sendResponse(EXPR), [ FUNCS | VARS | STACK ]) = { void, [ FUNCS | payload(getStr(getValue(evalExpr(EXPR, [ FUNCS | VARS | STACK ])))) ; VARS | STACK ] } .
+
+    --- eq getReturnValue({ void, abort(St) }) = void .
+
+    --- eq [ FUNCS | rollbackVars(params(id("payload")), VARS, 
+    ---         getState(evalStmt(sendResponse(id("payload")), St))) | STACK ]
+    --- =
+    ---     lock(St)
+    --- .
+
+    --- op unlock : LockedState VarStorage -> State .
+    --- eq unlock(getState({V, lock([ FUNCS | VARS | STACK ])}), VARS') = getState({V, [ FUNCS | VARS' ; VARS | STACK ]}) .
+    --- eq unlock(getState({V, St}), VARS') = getState({V, unlock(St, VARS')}) .
+endm
+
+
+mod SERVER is
+    protecting LANG * (op process : Term ~> AST to processLang) .
+    protecting SERVER-SEMANTICS .
+    protecting STRING .
+
+    vars T T1 T2 : Term .
+    var TL TL1 : TermList .
+    var QIDS : QidList .
+
+    op processCodeTokens : TermList ~> QidList .
+    eq processCodeTokens((T, TL)) = downTerm(T, '$err) processCodeTokens(TL) .
+    eq processCodeTokens(empty) = nil .
+
+    op parseCode : QidList ~> StmtAST .
+    eq parseCode(QIDS) = processLang(getTerm(metaParse(upModule('LANG-SYNTAX, false), QIDS, 'TopLevel))) .
+
+    op processCode : TermList ~> StmtAST .
+    eq processCode(TL) = parseCode(processCodeTokens(TL)) .
+
+    op processServer : Term ~> SemServer .
+    eq processServer('`{_`}[TL]) = server(processComponents(TL)) .
+
+    op processComponents : TermList ~> SemComponentList .
+    eq processComponents('empty.ComponentList) = $empty .
+    eq processComponents('__[T, TL]) = processComponents(T), processComponents(TL) .
+
+    eq processComponents('code`{!_!`}['codeTokens[TL]]) = code(processCode(TL)) .
+    eq processComponents('routes`{_`}[TL]) = routes(processRoutes(TL)) .
+
+    op processRoutes : TermList ~> SemRouter .
+    eq processRoutes('noRoutes.Router) = $noRoutes .
+    eq processRoutes('_->_[T, T1]) = route(
+        downTerm(T, ""), 
+        downTerm(T1, "")
+    ) .
+
+    op processConfig : TermList ~> Configuration .
+    eq processConfig('__[T, T1]) = processConfig(T) processConfig(T1) .
+    eq processConfig(empty) = none .
+    eq processConfig('service__;['token[T], T1]) = service(
+        string(downTerm(T, '$err)),
+        processServer(T1)
+    ) .
+
+endm
+
+mod SERVER-EXECUTION is
+    protecting SERVER-SEMANTICS .
+    protecting LANG-SEMANTICS .
+    protecting CONFIGURATION .
+
+    op makeRequest : String String String String -> Msg [msg] .
+
+    var ID : Nat .
+    var S S' BODY PATH CONTR RESP : String .
+    var SERV : SemComponentList .
+    var CODE : StmtAST .
+    var STATE : State .
+    var ROUTER : SemRouter .
+
+    rl connectionManager(ID) makeRequest(S, S', PATH, BODY) 
+    => 
+        connectionManager(ID + 1) connection(ID, S, S', request(PATH, BODY))
+    .
+
+    rl service(S, server(SERV, code(CODE), routes(route(PATH, CONTR), ROUTER)))
+        connection(ID, S', S, request(PATH, BODY))
+    =>
+        service(
+            S, 
+            server(
+                SERV,
+                code(CODE), 
+                routes(route(PATH, CONTR), ROUTER),
+                process(
+                    connection(ID, S', S, request(PATH, BODY)),
+                    serverFunctions ; CODE ; call(CONTR, args(empty)),
+                    [ empty | empty | empty ]
+                )
+            )
+        )
+    .
+
+    crl 
+        process(
+            connection(ID, S', S, request(PATH, BODY)),
+            CODE,
+            STATE
+        )
+    =>
+        process(
+            connection(ID, S', S, request(PATH, BODY)),
+            pass,
+            getState(evalServerStmt(CODE, STATE))
+        )
+    if CODE =/= pass .
+
+    var FUNCS : FuncStorage .
+    var VARS : VarStorage .
+    var STACK :  CallStack .
+
+    rl process(
+            connection(ID, S', S, request(PATH, BODY)),
+            CODE,
+            [ FUNCS | payload(RESP) ; VARS | STACK ]
+        )
+    =>
+        process(
+            connection(ID, S', S, request(PATH, BODY), response(RESP)),
+            CODE,
+            [ FUNCS | payload(RESP) ; VARS | STACK ]
+        )
+    .
+
+    rl service(S, server(SERV, process(
+                    connection(ID, S', S, request(PATH, BODY), response(RESP)),
+                    CODE,
+                    STATE
+                )))
+    => connection(ID, S', S, request(PATH, BODY), response(RESP)) 
+        service(S, server(SERV)) .
+endm
+
+load file.maude
+
+view Oid from TRIV to CONFIGURATION is 
+ sort Elt to Oid . 
+endv
+     
+ 
+fmod MAYBE{X :: TRIV} is 
+ sort Maybe{X} . 
+ subsort X$Elt < Maybe{X} . 
+ op maybe : -> Maybe{X} [ctor] . 
+endfm
+
+fmod SERVER-COMMANDS is
+    protecting STRING .
+
+    sort Command .
+    op load : String -> Command [ctor] .
+    op quit : -> Command [ctor] .
+    op print : -> Command [ctor] .
+    op request : String String String String -> Command [ctor] .
+endfm
+
+mod SERVER-IO is
+    protecting SERVER .
+    protecting LEXICAL .
+    protecting CONFIGURATION .
+    protecting FILE .
+    protecting MAYBE{Oid} * (op maybe to null) .
+    protecting STRING .
+    protecting META-LEVEL .
+    protecting SERVER-COMMANDS .
+    protecting SERVER-EXECUTION .
+    including STD-STREAM . 
+
+    vars S TEXT FILE : String .
+
+    op generate : String -> SemServer .
+    eq generate(S) = processServer(getTerm(metaParse(upModule('SERVER-SYNTAX, false), tokenize(S), 'Server))) .
+
+    op toConfig : String -> Configuration .
+    eq toConfig(S) = processConfig(getTerm(metaParse(upModule('SERVER-SYNTAX, false), tokenize(S), 'ServiceList))) .
+
+    op composition : -> Oid [ctor] .
+    op Composition : -> Cid [ctor] .
+    op action :_ : Command -> Attribute [ctor] .
+    op state :_ : Configuration -> Attribute [ctor] .
+    op in :_ : Maybe{Oid} -> Attribute [ctor] .
+    op inStr :_ : String -> Attribute [ctor] .
+
+    op idle : -> Command [ctor] .
+    op loadMsg : String -> Msg [ctor] .
+    op debug : Universal -> Msg [poly(1) ctor] .
+    
+
+    var Attrs : AttributeSet .
+    vars FHIn : Oid .
+    var CONF : Configuration .
+    var O O' : Oid .
+    var COMM : Command .
+    vars SERV SERV1 PATH BODY : String .
+    var N : Nat .
+
+    op makeMsg : Command -> Configuration .
+    
+    eq makeMsg(load(FILE)) = loadMsg(FILE) .
+    eq makeMsg(quit) = write(stdout, composition, "Goodbye!\n") .
+    eq makeMsg(print) = none .
+    eq makeMsg(request(SERV, SERV1, PATH, BODY)) = none .
+    eq makeMsg(COMM) = write(stdout, composition, "Invalid command\n") [owise] .
+
+    op init : -> Configuration .
+    eq init =
+        <>
+        < composition : Composition | in : null, state : connectionManager(0), inStr : "", action : idle >
+        write(stdout, composition, "WS Composition Verification\n") 
+    .
+
+    rl < composition : Composition | action : idle, Attrs >
+        wrote(composition, O')
+    =>
+        < composition : Composition | action : idle, Attrs >
+        getLine(stdin, composition, "> ")
+    .
+
+    rl < composition : Composition | action : idle, Attrs >
+        gotLine(composition, O', S)
+    =>
+        < composition : Composition | action : downTerm( 
+                     getTerm( 
+                      metaParse(upModule('SERVER-COMMANDS, false), tokenize(S), 'Command)), 
+                     idle), Attrs >
+        makeMsg(downTerm( 
+                     getTerm( 
+                      metaParse(upModule('SERVER-COMMANDS, false), tokenize(S), 'Command)), 
+                     idle))
+    .
+
+    rl < composition : Composition | in : null, action : load(FILE), Attrs >
+        loadMsg(FILE)
+    =>
+        < composition : Composition | in : null, action : load(FILE), Attrs >
+        openFile(fileManager, composition, FILE, "r")
+    .
+    
+    rl < composition : Composition | in : null, action : load(FILE), Attrs >
+        openedFile(composition, fileManager, FHIn)
+    =>
+        < composition : Composition | in : FHIn, action : load(FILE), Attrs >
+        getLine(FHIn, composition)
+    .
+
+    rl < composition : Composition | in : FHIn, inStr : S, state : CONF, action : load(FILE), Attrs >
+        gotLine(composition, FHIn, TEXT)
+    =>
+        if TEXT == "" then 
+            closeFile(FHIn, composition)
+            if toConfig(S) :: Configuration then
+                write(stdout, composition, "loaded specification from " + FILE + "\n")
+                < composition : Composition | in : null, inStr : "", state : (CONF toConfig(S)), action : idle, Attrs >
+            else
+                write(stdout, composition, "bad syntax in " + FILE + "\n")
+                < composition : Composition | in : null, inStr : "", state : CONF, action : idle, Attrs >
+            fi
+        else
+            < composition : Composition | in : FHIn, inStr : (S + TEXT), state : CONF, action : load(FILE), Attrs >
+            getLine(FHIn, composition)
+        fi .
+
+    rl < composition : Composition | action : print, state : CONF, Attrs >
+    =>
+        < composition : Composition | action : idle, state : CONF, Attrs >
+        write(stdout, composition, printTokens(metaPrettyPrint(upModule('SERVER-SEMANTICS, true), none, 
+                upTerm(CONF), 
+                mixfix)) + "\n")
+    .
+
+    rl < composition : Composition | action : request(SERV, SERV1, PATH, BODY), state : CONF, Attrs >
+    =>
+        < composition : Composition | action : print, state : downTerm(getTerm(metaRewrite(upModule('SERVER-EXECUTION, true), upTerm(CONF makeRequest(SERV, SERV1, PATH, BODY)), unbounded)), none), Attrs >
+    .
+endm
+
+--- red in META-LEVEL : metaParse(upModule('SERVER-SYNTAX, false), '`{ 'code '`{ '! 'pass '; 'pass '; '! '`} 'routes '`{ 'noRoutes '`} '`}, 'Server) .
+--- --- red in META-LEVEL : metaParse(upModule('SERVER-SYNTAX, false), 'code '`{ '! 'a '= '2 '; 'b '= 'a '; '! '`}, 'Component) .
+--- red in SERVER-IO : generate("{ code {! a = b ; pass ; !} routes { \"/products\" -> \"products\" } }") .
+rew in SERVER-IO : toConfig("service a0 { code {! function a(b) { respond(\"bbb\") ; } function main() { a(1) ; } !} routes { \"/main\" -> \"main\" } };") 
+    makeRequest("client", "a0", "/main", "body") 
+    connectionManager(0)
+    .
+
+match process(
+            connection(ID:Nat, S':String, S:String, request(PATH:String, BODY:String)),
+            CODE:StmtAST,
+            STATE:State
+        ) <=? process(connection(0, "client", "a0", request("/main",
+    "body")), function("main", params(empty), assign(id("a"), $add(int(1), int(5)))) ; call("main", args(empty)), [empty
+    | empty | empty]) .
+
+--- erew in SERVER-IO : start .
+--- fmod TEST is
+---     protecting (SERVER-SEMANTICS * (sort Component to semComponent)) + SERVER-SYNTAX .
+---     protecting SERVER-SYNTAX .
+---     protecting META-LEVEL .
+---     protecting QID-LIST .
+
+--- endfm
+--- red in TEST : downTerm('code['__[''pass.Qid,'';.Qid,''pass.Qid,'';.Qid]], code((nil).QidList)) .
