@@ -1,12 +1,16 @@
+
+---(
+    This module defines parsing of the language input
+)
 fmod LANG-SYNTAX is
     protecting QID-LIST .
 
+    --- special definition for any token read by maude tokenizer
     sort Token . 
     op token : Qid -> Token 
-        [special (id-hook Bubble     (1 1) 
+        [special (id-hook Bubble     (1 1) --- min/max number of any token for the term (only 1 token allowed)
                 op-hook qidSymbol (<Qids> : ~> Qid)
-                id-hook Exclude (pass, function, `(, `), ;, =, return )) ] .
-    --- subsort Token < ExprAtom .
+                id-hook Exclude (pass, function, `(, `), ;, =, return )) ] . --- disallow special words
 
     sort Expr .
     subsort Token < Expr .
@@ -20,8 +24,26 @@ fmod LANG-SYNTAX is
     subsort Token < TokenList .
     subsort TokenList < ArgList .
 
+    --- Parsing
     op _; : Expr -> Stmt .
-    op _+_ : Expr Expr -> Expr [gather (e E)].
+    op _+_ : Expr Expr -> Expr [gather (e E)] .
+    op _-_ : Expr Expr -> Expr [gather (e E)] .
+    op _*_ : Expr Expr -> Expr [gather (e E)] .
+    op _/_ : Expr Expr -> Expr [gather (e E)] .
+
+    op _==_ : Expr Expr -> Expr [gather (e E)] .
+    op _!=_ : Expr Expr -> Expr [gather (e E)] .
+    op _>_ : Expr Expr -> Expr [gather (e E)] .
+    op _<_ : Expr Expr -> Expr [gather (e E)] .
+    op _>=_ : Expr Expr -> Expr [gather (e E)] .
+    op _<=_ : Expr Expr -> Expr [gather (e E)] .
+    op _&&_ : Expr Expr -> Expr [gather (e E)] .
+    op _||_ : Expr Expr -> Expr [gather (e E)] .
+
+    op if_{_} : Expr Stmt -> Stmt .
+    op if_{_} else {_} : Expr Stmt Stmt -> Stmt .
+    op while_{_} : Expr Stmt -> Stmt .
+
     op `(_`) : Expr -> Expr .
     op _=_; : Expr Expr -> Stmt .
     op pass ; : -> Stmt .
@@ -34,10 +56,15 @@ fmod LANG-SYNTAX is
     op return_; : Expr -> Stmt .
 endfm
 
+
+---(
+    Definitions of the inner structure of language execution
+)
 fmod LANG-AST is
 
     protecting INT .
     protecting STRING .
+    protecting FLOAT .
 
     sort AST .
 
@@ -54,25 +81,29 @@ fmod LANG-AST is
     subsort Ident < ParamListAST .
     subsort ParamListAST < ArgListAST .
 
-    op empty : -> ParamListAST [ctor] .
-    op _,_ : ArgListAST ArgListAST -> ArgListAST [ctor assoc id: empty] .
+    op empty : -> ParamListAST [ctor] . --- list of parameters in function definition
+    op _,_ : ArgListAST ArgListAST -> ArgListAST [ctor assoc id: empty] . --- list of passed arguments in function call
     op _,_ : ParamListAST ParamListAST -> ParamListAST [ditto] .
     op _,_ : ArgListAST ParamListAST -> ArgListAST [ditto] .
     op _,_ : ParamListAST ArgListAST -> ArgListAST [ditto] .
 
-    op id : String -> Ident [ctor] .
-    op str : String -> ExprAST [ctor] .
-    op int : Int -> ExprAST [ctor] .
-    op $add : ExprAST ExprAST -> ExprAST [ctor] .
-    op assign : ExprAST ExprAST -> StmtAST [ctor] .
-    op pass : -> StmtAST [ctor] .
-    op return : ExprAST -> StmtAST [ctor] .
-    op abort : -> StmtAST [ctor] .
+    op id : String -> Ident [ctor] . --- identifier
+    op str : String -> ExprAST [ctor] . --- string literal
+    op int : Int -> ExprAST [ctor] . --- integer literal
+    op float : Float -> ExprAST [ctor] . --- integer literal
+    ops $add $sub $mult $div $gt $ge $lt $le $and $or $eq $ne : ExprAST ExprAST -> ExprAST [ctor] . --- binary operations
+    op assign : ExprAST ExprAST -> StmtAST [ctor] . --- =
+    op pass : -> StmtAST [ctor] . --- nothing
+    op return : ExprAST -> StmtAST [ctor] . --- return from function
+    op $ifelse : ExprAST StmtAST StmtAST -> StmtAST [ctor] .
+    op $while : ExprAST StmtAST -> StmtAST [ctor] .
+
+    op abort : -> StmtAST [ctor] . --- end execution
     op _;_ : StmtAST StmtAST -> StmtAST [ctor assoc id: pass] .
 
-    op function : String FuncParams StmtAST -> DeclAST [ctor] .
+    op function : String FuncParams StmtAST -> DeclAST [ctor] . --- function definition
     op function : String FuncParams -> DeclAST [ctor] .
-    op call : String CallArgs -> ExprAST [ctor] .
+    op call : String CallArgs -> ExprAST [ctor] . --- function call
 
     sort CallArgs .
     op args : ArgListAST -> CallArgs [ctor] .
@@ -81,12 +112,16 @@ fmod LANG-AST is
     op params : ParamListAST -> FuncParams [ctor] .
 endfm
 
+---(
+    Definition of how the language is interpreted
+)
 fmod LANG-SEMANTICS is
     protecting LANG-AST .
     
     sort State .
 
-    op [_|_|_] : FuncStorage VarStorage CallStack -> State [ctor prec 50 gather (e e E)] .
+    --- inner state of the execution. Stores defined functions and variables. CallStack is not used anymore
+    op [_|_] : FuncStorage VarStorage -> State [ctor prec 50 gather (e e)] .
 
     sort FuncStorage .
     sort Func .
@@ -95,7 +130,7 @@ fmod LANG-SEMANTICS is
     op empty : -> FuncStorage [ctor] .
     op _;_ : FuncStorage FuncStorage -> FuncStorage [ctor comm assoc id: empty prec 45] . 
 
-    op func : String FuncParams StmtAST -> Func [ctor] .
+    op func(_,_,_) : String FuncParams StmtAST -> Func [ctor format (b b b b b b b b o)] .
 
     sort StoredVar .
     sort VarStorage .
@@ -104,15 +139,18 @@ fmod LANG-SEMANTICS is
     op empty : -> VarStorage [ctor] .
     op _;_ : VarStorage VarStorage -> VarStorage [ctor comm assoc id: empty prec 45] .
     
+    --- storing value of a variable
     op _:=_ : String Value -> StoredVar [ctor] .
+    --- storing returned value from a function
     op returnVal : Value -> StoredVar [ctor] .
 
     sort Value .
     op void : -> Value [ctor] .
     op strVal : String -> Value [ctor] .
     op intVal : Int -> Value [ctor] .
+    op boolVal : Bool -> Value [ctor] .
 
-    
+    --- result from evaluation of a code (left contains value of evaluated expression, right is resulting state)
     sort EvalResult .
     op {_,_} : Value State -> EvalResult [ctor] .
 
@@ -149,73 +187,130 @@ fmod LANG-SEMANTICS is
     op getStr : Value -> String .
     eq getStr(strVal(STR)) = STR .
 
+    var B : Bool .
+
+    op getBool : Value -> Bool .
+    eq getBool(boolVal(B)) = B .
+
     vars E E1 : ExprAST .
     vars S S1 : StmtAST .
 
+    --- evaluation of an expression with resulting value
     op evalExpr : ExprAST State -> EvalResult .
+    --- evaluation of a statement without result
     op evalStmt : StmtAST State -> EvalResult .
 
     sort CallStack .
     subsort State < CallStack .
     op empty : -> CallStack [ctor] .
     op aborted : VarStorage -> State [ctor] .
+    op error : -> State [ctor] .
 
     vars STACK STACK' : CallStack .
 
+    --- if statement is just an expression evaluate it
     eq evalStmt(E, St) = evalExpr(E, St) .
 
+    --- evaluate addition as integer addition if both values are integers
     ceq evalExpr($add(E, E1), St) = { intVal(getInt(getValue(evalExpr(E, St))) + getInt(getValue(evalExpr(E1, St)))), St }
         if isInt(evalExpr(E, St)) and isInt(evalExpr(E1, St)) .
+    ceq evalExpr($sub(E, E1), St) = { intVal(getInt(getValue(evalExpr(E, St))) - getInt(getValue(evalExpr(E1, St)))), St }
+        if isInt(evalExpr(E, St)) and isInt(evalExpr(E1, St)) .
+    ceq evalExpr($mult(E, E1), St) = { intVal(getInt(getValue(evalExpr(E, St))) * getInt(getValue(evalExpr(E1, St)))), St }
+        if isInt(evalExpr(E, St)) and isInt(evalExpr(E1, St)) .
+    --- ceq evalExpr($div(E, E1), St) = { intVal(getInt(getValue(evalExpr(E, St))) / getInt(getValue(evalExpr(E1, St)))), St }
+    ---     if isInt(evalExpr(E, St)) and isInt(evalExpr(E1, St)) .
+
+    ceq evalExpr($eq(E, E1), St) = { boolVal(true), St }
+        if getValue(evalExpr(E, St)) == getValue(evalExpr(E1, St)) .
+    eq evalExpr($eq(E, E1), St) = { boolVal(false), St } [owise] .
+    
+    ceq evalExpr($ne(E, E1), St) = { boolVal(true), St }
+        if getValue(evalExpr(E, St)) =/= getValue(evalExpr(E1, St)) .
+    eq evalExpr($ne(E, E1), St) = { boolVal(false), St } [owise] .
+    
+    ceq evalExpr($lt(E, E1), St) = { boolVal(true), St }
+        if isInt(evalExpr(E, St)) and isInt(evalExpr(E1, St)) and getInt(getValue(evalExpr(E, St))) < getInt(getValue(evalExpr(E1, St))) .
+    ceq evalExpr($lt(E, E1), St) = { boolVal(false), St } if isInt(evalExpr(E, St)) and isInt(evalExpr(E1, St)) [owise] .
+    
+    ceq evalExpr($gt(E, E1), St) = { boolVal(true), St }
+        if isInt(evalExpr(E, St)) and isInt(evalExpr(E1, St)) and getInt(getValue(evalExpr(E, St))) > getInt(getValue(evalExpr(E1, St))) .
+    ceq evalExpr($gt(E, E1), St) = { boolVal(false), St } if isInt(evalExpr(E, St)) and isInt(evalExpr(E1, St)) [owise] .
 
     var VARS VARS' : VarStorage .
     var FUNCS : FuncStorage .
     vars PARAMS PARAMS' : FuncParams .
     var ARGS : CallArgs .
     
+    op valid : VarStorage -> Bool .
+    ceq valid(VARS ; VARS') = valid(VARS) and valid(VARS') if VARS =/= empty and VARS' =/= empty .
+    eq valid(STR := V) = true .
+    eq valid(returnVal(V)) = true .
+    eq valid(empty) = true .
+    
     op getVars : State -> VarStorage .
-    eq getVars([ FUNCS | VARS | STACK ]) = VARS .
+    eq getVars([ FUNCS | VARS ]) = VARS .
 
-    eq evalExpr(id(STR), [ FUNCS | STR := V ; VARS | STACK ]) = { V, [ FUNCS | STR := V ; VARS | STACK ]} .
+    --- retrieve value of the variable
+    eq evalExpr(id(STR), [ FUNCS | STR := V ; VARS ]) = { V, [ FUNCS | STR := V ; VARS ]} .
+    --- integer literal
     eq evalExpr(int(I), St) = { intVal(I), St } .
+    --- string literal
     eq evalExpr(str(STR), St) = { strVal(STR), St } .
 
+    --- evaluate second statement based on the resulting state of previous statement
     ceq evalStmt(S ; S1, St) = evalStmt(S1, getState(evalStmt(S, St))) if S =/= pass and S1 =/= pass .
     eq evalStmt(pass, St) = { void, St } .
 
-    eq evalStmt(assign(id(STR), E), [ FUNCS | VARS | STACK ]) = { void, [ FUNCS | assignVar(getVars(getState(evalExpr(E, [ FUNCS | VARS | STACK ] ))), STR, E, [ FUNCS | VARS | STACK ]) | STACK ] } [owise] .
-    eq evalStmt(return(E), [ FUNCS | VARS | STACK ]) = { void, [ FUNCS | returnVal(getValue(evalExpr(E, [ FUNCS | VARS | STACK ]))) ; VARS | STACK ] } [owise] .
+    --- variable assignment
+    eq evalStmt(assign(id(STR), E), [ FUNCS | VARS ]) = { void, [ FUNCS | assignVar(getVars(getState(evalExpr(E, [ FUNCS | VARS ] ))), STR, E, [ FUNCS | VARS ]) ] } [owise] .
+    --- function return
+    eq evalStmt(return(E), [ FUNCS | VARS ]) = { void, [ FUNCS | returnVal(getValue(evalExpr(E, [ FUNCS | VARS ]))) ; VARS] } [owise] .
 
-    eq evalStmt(function(STR, PARAMS, S), [ func(STR, PARAMS', S1) ; FUNCS | VARS | STACK ]) = { void, [ func(STR, PARAMS, S) ; FUNCS | VARS | STACK ] } .
-    eq evalStmt(function(STR, PARAMS, S), [ FUNCS | VARS | STACK ]) = { void, [ func(STR, PARAMS, S) ; FUNCS | VARS | STACK ] } [owise] .
+    --- function definition
+    eq evalStmt(function(STR, PARAMS, S), [ func(STR, PARAMS', S1) ; FUNCS | VARS ]) = { void, [ func(STR, PARAMS, S) ; FUNCS | VARS ] } .
+    eq evalStmt(function(STR, PARAMS, S), [ FUNCS | VARS ]) = { void, [ func(STR, PARAMS, S) ; FUNCS | VARS ] } [owise] .
 
-    eq evalExpr(call(STR, ARGS), [ func(STR, PARAMS, S) ; FUNCS | VARS | STACK ]) = { 
+    --- function call
+
+    eq evalExpr(call(STR, ARGS), [ func(STR, PARAMS, S) ; FUNCS | VARS ]) = { 
         getReturnValue(evalStmt(
             S, 
             [ 
+                --- evaluate body of the function based on the current state and argument substitutions
                 func(STR, PARAMS, S) ; FUNCS 
-                | addArgs(VARS, ARGS, PARAMS, [ func(STR, PARAMS, S) ; FUNCS | VARS | STACK ]) 
-                | STACK
+                | addArgs(VARS, ARGS, PARAMS, [ func(STR, PARAMS, S) ; FUNCS | VARS ])
             ]
         )),
         [ func(STR, PARAMS, S) ; FUNCS |
+        --- rollback substituted arguments (but keep global changes)
         rollbackVars(PARAMS, VARS, getState(evalStmt(
             S, 
             [ 
                 func(STR, PARAMS, S) ; FUNCS 
-                | addArgs(VARS, ARGS, PARAMS, [ func(STR, PARAMS, S) ; FUNCS | VARS | STACK ]) 
-                | STACK 
+                | addArgs(VARS, ARGS, PARAMS, [ func(STR, PARAMS, S) ; FUNCS | VARS ])
             ]
-        ))) | STACK
+        )))
         ]
     }
     .
 
+    ceq evalStmt($while(E, S), [ FUNCS | VARS ]) 
+        = evalStmt($while(E, S), getState(evalStmt(S, [ FUNCS | VARS ]))) 
+    if getBool(getValue(evalExpr(E, [ FUNCS | VARS ]))) and valid(VARS) .
+    
+    eq evalStmt($while(E, S), [ FUNCS | VARS ]) = evalStmt(pass, [ FUNCS | VARS ]) [owise] .
+
+    ceq evalStmt($ifelse(E, S, S1), [ FUNCS | VARS ]) = evalStmt(S, [ FUNCS | VARS ]) if getBool(getValue(evalExpr(E, [ FUNCS | VARS ]))) .
+    eq evalStmt($ifelse(E, S, S1), [ FUNCS | VARS ]) = evalStmt(S1, [ FUNCS | VARS ]) [owise] .
+
+    --- program abortion
     eq evalExpr(S, aborted(VARS)) = { void, aborted(VARS) } .
     eq evalStmt(S, aborted(VARS)) = { void, aborted(VARS) } .
-    eq evalStmt(abort, [ FUNCS | VARS | STACK ]) = { void, aborted(VARS) } .
+    eq evalStmt(abort, [ FUNCS | VARS ]) = { void, aborted(VARS) } .
 
     op getReturnValue : EvalResult -> Value .
-    eq getReturnValue({ void, [ FUNCS | returnVal(V) ; VARS | STACK ] }) = V .
+    eq getReturnValue({ void, [ FUNCS | returnVal(V) ; VARS ] }) = V .
     eq getReturnValue({ void, aborted(VARS) }) = void .
 
 
@@ -224,16 +319,17 @@ fmod LANG-SEMANTICS is
     var PARAM : ParamAST .
     var PARAMLIST : ParamListAST .
 
+    --- rolling back variable substitutions after function call
     op rollbackVars : FuncParams VarStorage State -> VarStorage .
-    eq rollbackVars(params(id(STR), PARAMLIST), STR := V ; VARS, [ FUNCS | STR := V' ; VARS' | STACK ])
+    eq rollbackVars(params(id(STR), PARAMLIST), STR := V ; VARS, [ FUNCS | STR := V' ; VARS' ])
     =
-        STR := V ; rollbackVars(params(PARAMLIST), VARS, [ FUNCS | VARS' | STACK ]) .
+        STR := V ; rollbackVars(params(PARAMLIST), VARS, [ FUNCS | VARS' ]) .
 
-    eq rollbackVars(params(id(STR), PARAMLIST), VARS, [ FUNCS | STR := V' ; VARS' | STACK ])
+    eq rollbackVars(params(id(STR), PARAMLIST), VARS, [ FUNCS | STR := V' ; VARS' ])
     =
-        rollbackVars(params(PARAMLIST), VARS, [ FUNCS | VARS' | STACK ]) [owise] .
+        rollbackVars(params(PARAMLIST), VARS, [ FUNCS | VARS' ]) [owise] .
 
-    eq rollbackVars(params(empty), VARS, [ FUNCS | VARS' | STACK ])
+    eq rollbackVars(params(empty), VARS, [ FUNCS | VARS' ])
     =
         VARS' .
 
@@ -241,6 +337,7 @@ fmod LANG-SEMANTICS is
     =
         VARS' .
 
+    --- assigning variables for function call
     op assignVar : VarStorage String ExprAST State -> VarStorage .
     eq assignVar((STR := V ; VARS), STR, E, St) = STR := getValue(evalExpr(E, St)) ; VARS .
     eq assignVar((VARS), STR, E, St) = STR := getValue(evalExpr(E, St)) ; VARS [owise] .
@@ -250,6 +347,10 @@ fmod LANG-SEMANTICS is
     eq addArgs(VARS, args(empty), params(empty), St) = VARS .
 endfm
 
+
+---(
+    Utility module for checking if a token is a valid identifier
+)
 fmod IDENTIFIER is 
     protecting STRING .
     protecting BOOL .
@@ -273,6 +374,10 @@ fmod IDENTIFIER is
     eq validChar(S) = startsWithLetter(S) or (S == "_") or (ascii(S) >= ascii("0") and ascii(S) <= ascii("9")).
 endfm
 
+
+---(
+    This module converts parsed structure of terms (from LANG-SYNTAX) into AST
+)
 fmod LANG is
     protecting META-LEVEL .
     protecting LANG-AST .
@@ -296,6 +401,15 @@ fmod LANG is
     if valid(string(downTerm(T, '$err))) .
 
     eq process('_+_[T, T1]) = $add(process(T), process(T1)) .
+    eq process('_-_[T, T1]) = $sub(process(T), process(T1)) .
+    eq process('_==_[T, T1]) = $eq(process(T), process(T1)) .
+    eq process('_!=_[T, T1]) = $ne(process(T), process(T1)) .
+    eq process('_>_[T, T1]) = $gt(process(T), process(T1)) .
+    eq process('_>=_[T, T1]) = $ge(process(T), process(T1)) .
+    eq process('_<_[T, T1]) = $lt(process(T), process(T1)) .
+    eq process('_<=_[T, T1]) = $le(process(T), process(T1)) .
+    eq process('_&&_[T, T1]) = $and(process(T), process(T1)) .
+    eq process('_||_[T, T1]) = $or(process(T), process(T1)) .
 
     eq process('`(_`)[T]) = process(T) .
     eq process('_;[T]) = process(T) .
@@ -310,6 +424,10 @@ fmod LANG is
     eq process('function_`(_`)`{_`}[T, T1, T2]) = function(extractId(process(T)), params(processParams(T1)), process(T2)) .
     eq process('_`(`)[T]) = call(extractId(process(T)), args(empty)) .
     eq process('_`(_`)[T, T1]) = call(extractId(process(T)), args(processArgs(T1))) .
+
+    eq process('while_`{_`}[T, T1]) = $while(process(T), process(T1)) .
+    eq process('if_`{_`}[T, T1]) = $ifelse(process(T), process(T1), pass) .
+    eq process('if_`{_`}else`{_`}[T, T1, T2]) = $ifelse(process(T), process(T1), process(T2)) .
 
     op processArgs : Term ~> ArgListAST .
     eq processArgs(T) = process(T) [owise] .
@@ -328,13 +446,71 @@ fmod LANG is
     eq parsePredefined(Q2, Q, Q1) = metaParse(upModule(Q, false), downTerm(Q2, 'error), Q1) .
 endfm
 
+load file.maude
 
-fmod LANG-IO is
+view Oid from TRIV to CONFIGURATION is 
+ sort Elt to Oid . 
+endv
+     
+ 
+fmod MAYBE{X :: TRIV} is 
+ sort Maybe{X} . 
+ subsort X$Elt < Maybe{X} . 
+ op maybe : -> Maybe{X} [ctor] . 
+endfm
+
+mod FILE-READER is
+    protecting CONFIGURATION .
+    protecting FILE .
+    protecting MAYBE{Oid} .
+
+    vars S TEXT : String .
+    var FHIn : Oid .
+    var Attrs : AttributeSet .
+
+    
+    op Reader : -> Cid [ctor] .
+    op reader : -> Oid [ctor] .
+    op result:_ : String -> Attribute [ctor] .
+    op fhIn:_ : Maybe{Oid} -> Attribute [ctor] .
+    op done:_ : Bool -> Attribute [ctor] .
+
+    op getFileContents : String -> String .
+    op extractReader : Configuration -> String .
+
+    eq getFileContents(S) = extractReader(<> < reader : Reader | result: "", fhIn: maybe, done: false > openFile(fileManager, reader, S, "r")) .
+
+    rl < reader : Reader | fhIn: maybe, Attrs > openedFile(reader, fileManager, FHIn)
+    =>
+        < reader : Reader | fhIn: FHIn, Attrs > getLine(FHIn, reader) .
+
+    rl < reader : Reader | fhIn: FHIn, result: S, done: false, Attrs > gotLine(reader, FHIn, TEXT)
+    =>
+        if TEXT =/= "" then
+            < reader : Reader | fhIn: FHIn, result: (S + TEXT), done: false, Attrs > getLine(FHIn, reader)
+        else
+            < reader : Reader | fhIn: maybe, result: S, done: true, Attrs >
+            closeFile(FHIn, reader)
+        fi
+    .
+
+    var CONF : Configuration .
+
+    eq extractReader(< reader : Reader | result: S, done: true, Attrs > CONF)
+        = S .
+        
+endm
+
+---(
+    Utility functions for easy execution
+)
+mod LANG-IO is
     protecting LANG .
     protecting LANG-SEMANTICS .
     extending LEXICAL .
+    protecting FILE-READER .
 
-    var S : String .
+    vars S TEXT : String .
     var QID : Qid .
     var QIDS : QidList .
 
@@ -345,14 +521,17 @@ fmod LANG-IO is
     eq parse(S) = process(getTerm(metaParse(upModule('LANG-SYNTAX, false), tokenize(S), 'TopLevel))) .
 
     op execute : String -> EvalResult .
-    eq execute(S) = evalStmt(parse(S), [empty | empty | empty]) .
-endfm
+    eq execute(S) = evalStmt(parse(S), [empty | empty ]) .
+
+    op executeFile : String -> EvalResult .
+    eq executeFile(S) = execute(getFileContents(S)) .
+endm
 
 --- red in LANG : downTerm(''12, 'err) .
 
 --- red in LANG : parsePredefined('"123", 'STRING, 'String) .
 
-red execute("function main(a, b) { g = a + 6 ; return a + b ; } a = 1 ; r = 0 ; c = main(2, 5) ;") .
+--- red execute("function main(a, b) { g = a + 6 ; return a + b ; } a = 1 ; r = 0 ; c = main(2, 5) ;") .
 --- red metaParse(upModule('LANG-SYNTAX, false), tokenize("return a ;"), 'Stmt) .
 --- red in LANG : metaParse(upModule('LANG-SYNTAX, false), 'function 'main '`( '`) '`{ 'pass '; '`}, 'Decl) .
 --- red in LANG : metaParse(upModule('LANG-SYNTAX, false), tokenize("function main() { pass ; }"), 'Decl) .
@@ -360,6 +539,7 @@ red execute("function main(a, b) { g = a + 6 ; return a + b ; } a = 1 ; r = 0 ; 
 --- red in LANG : tokenize("a = b ;") .
 --- red in LANG : metaParse(upModule('LANG-SYNTAX, false), 'function, 'Token) .
 
+erew executeFile("test.lang") .
 
 --- red in LANG-SYNTAX : 
 ---     downTerm(getTerm(metaParse(

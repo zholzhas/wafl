@@ -1,18 +1,23 @@
 load lang.maude
 
+---(
+    Definition of syntax for web services
+)
 fmod SERVER-SYNTAX is
     protecting STRING .
     protecting QID-LIST .
 
+    --- tokens for a code of a web server
     sort Code .
     op codeTokens : QidList -> Code 
         [special 
-            (id-hook Bubble      (1 -1) 
-            op-hook qidListSymbol (__ : QidList QidList ~> QidList) 
+            (id-hook Bubble      (1 -1) --- unlimited number of tokens
+            op-hook qidListSymbol (__ : QidList QidList ~> QidList) --- separator between tokens
             op-hook qidSymbol    (<Qids> : ~> Qid) 
-            id-hook Exclude     (!`}))] .
+            id-hook Exclude     (!`}))] . --- exclude token that ends the code sequence
     
     
+    --- any token
     sort Token . 
     op token : Qid -> Token 
         [special (id-hook Bubble     (1 1) 
@@ -51,6 +56,10 @@ fmod SERVER-SYNTAX is
 
 endfm
 
+
+---(
+    Inner structure and simulation of web servers
+)
 mod SERVER-SEMANTICS is
     extending LANG-SEMANTICS .
     protecting CONFIGURATION .
@@ -97,11 +106,14 @@ mod SERVER-SEMANTICS is
     subsort SemService < Object .
     op service : String SemServer -> SemService [ctor] .
 
+    --- additional language constructs for send requests and responses
     op sendRequest : String SemRequest -> StmtAST [ctor] .
     op sendResponse : ExprAST -> StmtAST [ctor] .
 
+    --- definition of predefined functions
     op serverFunctions : -> StmtAST .
     eq serverFunctions =
+        --- manual definition of function respond(payload)
         function("respond", params(id("payload")), sendResponse(id("payload")) ; abort) .
 
     op payload : String -> StoredVar [ctor] .
@@ -123,28 +135,20 @@ mod SERVER-SEMANTICS is
     var EXPR : ExprAST .
     var V : Value .
 
+    --- execution of server is the same as for the langugage
     eq evalServerStmt(CODE, [ FUNCS | VARS | STACK ]) = evalStmt(CODE, [ FUNCS | VARS | STACK ]) [owise] .
     ceq evalServerStmt(CODE ; CODE', [ FUNCS | VARS | STACK ]) 
     = evalServerStmt(CODE', getState(evalServerStmt(CODE, [ FUNCS | VARS | STACK ])))
     if CODE =/= pass and CODE' =/= pass .
 
-    --- eq evalStmt(CODE, abort(St)) = { void, abort(St) } .
+    --- semantics of respond function
     eq evalStmt(sendResponse(EXPR), [ FUNCS | VARS | STACK ]) = { void, [ FUNCS | payload(getStr(getValue(evalExpr(EXPR, [ FUNCS | VARS | STACK ])))) ; VARS | STACK ] } .
 
-    --- eq getReturnValue({ void, abort(St) }) = void .
-
-    --- eq [ FUNCS | rollbackVars(params(id("payload")), VARS, 
-    ---         getState(evalStmt(sendResponse(id("payload")), St))) | STACK ]
-    --- =
-    ---     lock(St)
-    --- .
-
-    --- op unlock : LockedState VarStorage -> State .
-    --- eq unlock(getState({V, lock([ FUNCS | VARS | STACK ])}), VARS') = getState({V, [ FUNCS | VARS' ; VARS | STACK ]}) .
-    --- eq unlock(getState({V, St}), VARS') = getState({V, unlock(St, VARS')}) .
 endm
 
-
+---(
+    conversion from syntax to semantics
+)
 mod SERVER is
     protecting LANG * (op process : Term ~> AST to processLang) .
     protecting SERVER-SEMANTICS .
@@ -191,6 +195,10 @@ mod SERVER is
 
 endm
 
+
+---(
+    interaction between servers and initialization of server side execution
+)
 mod SERVER-EXECUTION is
     protecting SERVER-SEMANTICS .
     protecting LANG-SEMANTICS .
@@ -205,11 +213,13 @@ mod SERVER-EXECUTION is
     var STATE : State .
     var ROUTER : SemRouter .
 
+    --- making request creates new connection with unique id got from connectionManager
     rl connectionManager(ID) makeRequest(S, S', PATH, BODY) 
     => 
         connectionManager(ID + 1) connection(ID, S, S', request(PATH, BODY))
     .
 
+    --- when there is an incoming request from some connection
     rl service(S, server(SERV, code(CODE), routes(route(PATH, CONTR), ROUTER)))
         connection(ID, S', S, request(PATH, BODY))
     =>
@@ -219,6 +229,8 @@ mod SERVER-EXECUTION is
                 SERV,
                 code(CODE), 
                 routes(route(PATH, CONTR), ROUTER),
+                --- create a new process for the server that should run all definitions
+                --- and call corresponding function for the incoming path
                 process(
                     connection(ID, S', S, request(PATH, BODY)),
                     serverFunctions ; CODE ; call(CONTR, args(empty)),
@@ -228,6 +240,7 @@ mod SERVER-EXECUTION is
         )
     .
 
+    --- run process
     crl 
         process(
             connection(ID, S', S, request(PATH, BODY)),
@@ -246,6 +259,7 @@ mod SERVER-EXECUTION is
     var VARS : VarStorage .
     var STACK :  CallStack .
 
+    --- if the state of the process has response payload, then pass it to the invoking connection
     rl process(
             connection(ID, S', S, request(PATH, BODY)),
             CODE,
@@ -259,6 +273,7 @@ mod SERVER-EXECUTION is
         )
     .
 
+    --- when there is a response in a process' connection, pass it to the connection one level higher
     rl service(S, server(SERV, process(
                     connection(ID, S', S, request(PATH, BODY), response(RESP)),
                     CODE,
@@ -268,19 +283,11 @@ mod SERVER-EXECUTION is
         service(S, server(SERV)) .
 endm
 
-load file.maude
 
-view Oid from TRIV to CONFIGURATION is 
- sort Elt to Oid . 
-endv
-     
- 
-fmod MAYBE{X :: TRIV} is 
- sort Maybe{X} . 
- subsort X$Elt < Maybe{X} . 
- op maybe : -> Maybe{X} [ctor] . 
-endfm
 
+---(
+    commands in the meta-interpreter cli mode
+)
 fmod SERVER-COMMANDS is
     protecting STRING .
 
@@ -291,6 +298,10 @@ fmod SERVER-COMMANDS is
     op request : String String String String -> Command [ctor] .
 endfm
 
+
+---(
+    CLI mode of the framework
+)
 mod SERVER-IO is
     protecting SERVER .
     protecting LEXICAL .
@@ -305,9 +316,11 @@ mod SERVER-IO is
 
     vars S TEXT FILE : String .
 
+    --- create semantics for web services from a source code
     op generate : String -> SemServer .
     eq generate(S) = processServer(getTerm(metaParse(upModule('SERVER-SYNTAX, false), tokenize(S), 'Server))) .
 
+    --- create full environment
     op toConfig : String -> Configuration .
     eq toConfig(S) = processConfig(getTerm(metaParse(upModule('SERVER-SYNTAX, false), tokenize(S), 'ServiceList))) .
 
@@ -410,29 +423,3 @@ mod SERVER-IO is
         < composition : Composition | action : print, state : downTerm(getTerm(metaRewrite(upModule('SERVER-EXECUTION, true), upTerm(CONF makeRequest(SERV, SERV1, PATH, BODY)), unbounded)), none), Attrs >
     .
 endm
-
---- red in META-LEVEL : metaParse(upModule('SERVER-SYNTAX, false), '`{ 'code '`{ '! 'pass '; 'pass '; '! '`} 'routes '`{ 'noRoutes '`} '`}, 'Server) .
---- --- red in META-LEVEL : metaParse(upModule('SERVER-SYNTAX, false), 'code '`{ '! 'a '= '2 '; 'b '= 'a '; '! '`}, 'Component) .
---- red in SERVER-IO : generate("{ code {! a = b ; pass ; !} routes { \"/products\" -> \"products\" } }") .
-rew in SERVER-IO : toConfig("service a0 { code {! function a(b) { respond(\"bbb\") ; } function main() { a(1) ; } !} routes { \"/main\" -> \"main\" } };") 
-    makeRequest("client", "a0", "/main", "body") 
-    connectionManager(0)
-    .
-
-match process(
-            connection(ID:Nat, S':String, S:String, request(PATH:String, BODY:String)),
-            CODE:StmtAST,
-            STATE:State
-        ) <=? process(connection(0, "client", "a0", request("/main",
-    "body")), function("main", params(empty), assign(id("a"), $add(int(1), int(5)))) ; call("main", args(empty)), [empty
-    | empty | empty]) .
-
---- erew in SERVER-IO : start .
---- fmod TEST is
----     protecting (SERVER-SEMANTICS * (sort Component to semComponent)) + SERVER-SYNTAX .
----     protecting SERVER-SYNTAX .
----     protecting META-LEVEL .
----     protecting QID-LIST .
-
---- endfm
---- red in TEST : downTerm('code['__[''pass.Qid,'';.Qid,''pass.Qid,'';.Qid]], code((nil).QidList)) .
