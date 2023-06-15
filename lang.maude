@@ -99,6 +99,11 @@ fmod LANG-AST is
     op $while : ExprAST StmtAST -> StmtAST [ctor] .
 
     op abort : -> StmtAST [ctor] . --- end execution
+
+    sort IO .
+    op $lock : ExprAST IO -> StmtAST [ctor] .
+    op $dispatch : ExprAST IO -> StmtAST [ctor] .
+
     op _;_ : StmtAST StmtAST -> StmtAST [ctor assoc id: pass] .
 
     op function : String FuncParams StmtAST -> DeclAST [ctor] . --- function definition
@@ -110,18 +115,35 @@ fmod LANG-AST is
 
     sort FuncParams .
     op params : ParamListAST -> FuncParams [ctor] .
+
+    sort Value .
+    op void : -> Value [ctor] .
+    op delete : -> Value [ctor] .
+    op strVal : String -> Value [ctor] .
+    op intVal : Int -> Value [ctor] .
+    op floatVal : Float -> Value [ctor] .
+    op boolVal : Bool -> Value [ctor] .
+    op refVal : Nat -> Value [ctor] .
+    op listVal : Nat -> Value [ctor] .
 endfm
+
+view Value from DEFAULT to LANG-AST is
+    sort Elt to Value .
+    op 0 to delete .
+endv
 
 ---(
     Definition of how the language is interpreted
 )
 fmod LANG-SEMANTICS is
     protecting LANG-AST .
+    protecting CONVERSION .
+    protecting ARRAY{Nat, Value} .
     
     sort State .
 
     --- inner state of the execution. Stores defined functions and variables. CallStack is not used anymore
-    op [_|_] : FuncStorage VarStorage -> State [ctor prec 50 gather (e e)] .
+    op [_|_|_] : FuncStorage VarStorage Stack -> State [ctor prec 50 gather (e e &)] .
 
     sort FuncStorage .
     sort Func .
@@ -139,28 +161,27 @@ fmod LANG-SEMANTICS is
     op empty : -> VarStorage [ctor] .
     op _;_ : VarStorage VarStorage -> VarStorage [ctor comm assoc id: empty prec 45] .
     
-    --- storing value of a variable
-    op _:=_ : String Value -> StoredVar [ctor] .
+    --- storing index of a variable on the stack
+    op _:=_ : String Nat -> StoredVar [ctor] .
     --- storing returned value from a function
     op returnVal : Value -> StoredVar [ctor] .
 
-    sort Value .
-    op void : -> Value [ctor] .
-    op strVal : String -> Value [ctor] .
-    op intVal : Int -> Value [ctor] .
-    op boolVal : Bool -> Value [ctor] .
+    sort Stack .
+    op stack : Nat Array{Nat, Value} -> Stack [ctor] .
 
     --- result from evaluation of a code (left contains value of evaluated expression, right is resulting state)
     sort EvalResult .
     op {_,_} : Value State -> EvalResult [ctor] .
 
     var V V' : Value .
-    var St : State .
+    var St St' : State .
 
-    op getValue : EvalResult -> Value .
+    --- instead of making it return exact sort, we return the kind of the sort.
+    --- this prevents derivations of the operators until they return an actual Value/State
+    op getValue : EvalResult -> [Value] .
     eq getValue({V, St}) = V .
 
-    op getState : EvalResult -> State .
+    op getState : EvalResult -> [State] .
     eq getState({V, St}) = St .
 
     var I : Int .
@@ -192,21 +213,56 @@ fmod LANG-SEMANTICS is
     op getBool : Value -> Bool .
     eq getBool(boolVal(B)) = B .
 
+    var F : Float .
+
+    op isFloat : Value -> Bool .
+    eq isFloat(floatVal(F)) = true .
+    eq isFloat(V) = false [owise] .
+
+    op isFloat : EvalResult -> Bool .
+    eq isFloat({V, St}) = isFloat(V) .
+
+    op getFloat : Value -> Float .
+    eq getFloat(floatVal(F)) = F .
+    eq getFloat(intVal(I)) = toFloat(I) .
+
+    op isNum : EvalResult -> Bool .
+    eq isNum({V, St}) = isFloat(V) or isInt(V) .
+
+    op toFloat : Float -> Float .
+    op toFloat : Int -> Float .
+    eq toFloat(F) = F .
+    eq toFloat(I) = float(I) .
+
+    var N : Nat .
+
+    op isRef : Value -> Bool .
+    eq isRef(refVal(N)) = true .
+    eq isRef(V) = false [owise] .
+
+    op isRef : EvalResult -> Bool .
+    eq isRef({V, St}) = isRef(V) .
+
+    op getRef : Value -> Nat .
+    eq getRef(refVal(N)) = N .
+
     vars E E1 : ExprAST .
     vars S S1 : StmtAST .
 
     --- evaluation of an expression with resulting value
-    op evalExpr : ExprAST State -> EvalResult .
+    op evalExpr : ExprAST State -> [EvalResult] .
+    --- evaluation of reference value
+    op evalRefExpr : ExprAST State -> [EvalResult] .
     --- evaluation of a statement without result
-    op evalStmt : StmtAST State -> EvalResult .
+    op evalStmt : StmtAST State -> [EvalResult] .
 
     sort CallStack .
     subsort State < CallStack .
     op empty : -> CallStack [ctor] .
-    op aborted : VarStorage -> State [ctor] .
-    op error : -> State [ctor] .
-
-    vars STACK STACK' : CallStack .
+    op aborted : VarStorage ~> State [ctor] .
+    op error : String ~> State [ctor] .
+    op locked : State Nat IO ~> State [ctor] .
+    op dispatched : EvalResult Value IO ~> EvalResult [ctor] .
 
     --- if statement is just an expression evaluate it
     eq evalStmt(E, St) = evalExpr(E, St) .
@@ -214,12 +270,22 @@ fmod LANG-SEMANTICS is
     --- evaluate addition as integer addition if both values are integers
     ceq evalExpr($add(E, E1), St) = { intVal(getInt(getValue(evalExpr(E, St))) + getInt(getValue(evalExpr(E1, St)))), St }
         if isInt(evalExpr(E, St)) and isInt(evalExpr(E1, St)) .
-    ceq evalExpr($sub(E, E1), St) = { intVal(getInt(getValue(evalExpr(E, St))) - getInt(getValue(evalExpr(E1, St)))), St }
-        if isInt(evalExpr(E, St)) and isInt(evalExpr(E1, St)) .
+    --- ceq evalExpr($sub(E, E1), St) = { intVal(getInt(getValue(evalExpr(E, St))) - getInt(getValue(evalExpr(E1, St)))), St }
+    ---     if isInt(evalExpr(E, St)) and isInt(evalExpr(E1, St)) .
     ceq evalExpr($mult(E, E1), St) = { intVal(getInt(getValue(evalExpr(E, St))) * getInt(getValue(evalExpr(E1, St)))), St }
         if isInt(evalExpr(E, St)) and isInt(evalExpr(E1, St)) .
-    --- ceq evalExpr($div(E, E1), St) = { intVal(getInt(getValue(evalExpr(E, St))) / getInt(getValue(evalExpr(E1, St)))), St }
-    ---     if isInt(evalExpr(E, St)) and isInt(evalExpr(E1, St)) .
+    ceq evalExpr($div(E, E1), St) = { floatVal(toFloat(getInt(getValue(evalExpr(E, St)))) / toFloat(getInt(getValue(evalExpr(E1, St))))), St }
+        if isInt(evalExpr(E, St)) and isInt(evalExpr(E1, St)) .
+
+        
+    ceq evalExpr($add(E, E1), St) = { floatVal(toFloat(getFloat(getValue(evalExpr(E, St)))) + toFloat(getFloat(getValue(evalExpr(E1, St))))), St }
+        if (isFloat(evalExpr(E, St)) and isNum(evalExpr(E1, St))) or (isFloat(evalExpr(E1, St)) and isNum(evalExpr(E, St))) .
+    --- ceq evalExpr($sub(E, E1), St) = { floatVal(toFloat(getFloat(getValue(evalExpr(E, St)))) - toFloat(getFloat(getValue(evalExpr(E1, St))))), St }
+    ---     if (isFloat(evalExpr(E, St)) and isNum(evalExpr(E1, St))) or (isFloat(evalExpr(E1, St)) and isNum(evalExpr(E, St))) .
+    ceq evalExpr($mult(E, E1), St) = { floatVal(toFloat(getFloat(getValue(evalExpr(E, St)))) * toFloat(getFloat(getValue(evalExpr(E1, St))))), St }
+        if (isFloat(evalExpr(E, St)) and isNum(evalExpr(E1, St))) or (isFloat(evalExpr(E1, St)) and isNum(evalExpr(E, St))) .
+    ceq evalExpr($div(E, E1), St) = { floatVal(toFloat(getFloat(getValue(evalExpr(E, St)))) / toFloat(getFloat(getValue(evalExpr(E1, St))))), St }
+        if (isFloat(evalExpr(E, St)) and isNum(evalExpr(E1, St))) or (isFloat(evalExpr(E1, St)) and isNum(evalExpr(E, St))) .
 
     ceq evalExpr($eq(E, E1), St) = { boolVal(true), St }
         if getValue(evalExpr(E, St)) == getValue(evalExpr(E1, St)) .
@@ -241,110 +307,173 @@ fmod LANG-SEMANTICS is
     var FUNCS : FuncStorage .
     vars PARAMS PARAMS' : FuncParams .
     var ARGS : CallArgs .
-    
+    var STACK : Stack .
+
+    op validState : State -> Bool .
+    eq validState([ FUNCS | VARS | STACK ]) = valid(VARS) .
+    --- eq validState(locked(St, N)) = validState(St) .
+
     op valid : VarStorage -> Bool .
     ceq valid(VARS ; VARS') = valid(VARS) and valid(VARS') if VARS =/= empty and VARS' =/= empty .
-    eq valid(STR := V) = true .
+    eq valid(STR := N) = true .
     eq valid(returnVal(V)) = true .
     eq valid(empty) = true .
     
     op getVars : State -> VarStorage .
-    eq getVars([ FUNCS | VARS ]) = VARS .
+    eq getVars([ FUNCS | VARS | STACK ]) = VARS .
 
     --- retrieve value of the variable
-    eq evalExpr(id(STR), [ FUNCS | STR := V ; VARS ]) = { V, [ FUNCS | STR := V ; VARS ]} .
+    eq evalExpr(id(STR), St) = { getStackValue(getRef(getValue(evalRefExpr(id(STR), St))), getState(evalRefExpr(id(STR), St))), St } .
     --- integer literal
     eq evalExpr(int(I), St) = { intVal(I), St } .
     --- string literal
     eq evalExpr(str(STR), St) = { strVal(STR), St } .
 
+    eq evalExpr(float(F), St) = { floatVal(F), St } .
+
     --- evaluate second statement based on the resulting state of previous statement
-    ceq evalStmt(S ; S1, St) = evalStmt(S1, getState(evalStmt(S, St))) if S =/= pass and S1 =/= pass .
-    eq evalStmt(pass, St) = { void, St } .
+    ceq evalStmt(S ; S1, St) = evalStmt(S1, getState(evalStmt(S, St))) if S =/= pass and S1 =/= pass and validState(St) .
+    eq evalStmt(pass, St) = { void, St }  .
 
     --- variable assignment
-    eq evalStmt(assign(id(STR), E), [ FUNCS | VARS ]) = { void, [ FUNCS | assignVar(getVars(getState(evalExpr(E, [ FUNCS | VARS ] ))), STR, E, [ FUNCS | VARS ]) ] } [owise] .
+    ceq evalStmt(assign(E, E1), St) = evalAssign(E, evalExpr(E1, St)) if validState(St) .
+
+    op evalAssign : ExprAST EvalResult ~> EvalResult .
+    eq evalAssign(E, { V, St }) = { void, assignValue(getRef(getValue(evalRefExpr(E, St))), V, getState(evalRefExpr(E, St))) } .
+
     --- function return
-    eq evalStmt(return(E), [ FUNCS | VARS ]) = { void, [ FUNCS | returnVal(getValue(evalExpr(E, [ FUNCS | VARS ]))) ; VARS] } [owise] .
+    eq evalStmt(return(E), St) = evalReturn(evalExpr(E, St)) .
+
+    op evalReturn : EvalResult ~> EvalResult .
+    eq evalReturn({V, [ FUNCS | returnVal(V') ; VARS | STACK ]}) = { void, [ FUNCS | returnVal(V) ; VARS | STACK ] } .
+    eq evalReturn({V, [ FUNCS | VARS | STACK ]}) = { void, [ FUNCS | returnVal(V) ; VARS | STACK ] } [owise] .
 
     --- function definition
-    eq evalStmt(function(STR, PARAMS, S), [ func(STR, PARAMS', S1) ; FUNCS | VARS ]) = { void, [ func(STR, PARAMS, S) ; FUNCS | VARS ] } .
-    eq evalStmt(function(STR, PARAMS, S), [ FUNCS | VARS ]) = { void, [ func(STR, PARAMS, S) ; FUNCS | VARS ] } [owise] .
+    ceq evalStmt(function(STR, PARAMS, S), [ func(STR, PARAMS', S1) ; FUNCS | VARS | STACK ]) = { void, [ func(STR, PARAMS, S) ; FUNCS | VARS | STACK ] } if validState([ func(STR, PARAMS', S1) ; FUNCS | VARS | STACK ]) .
+    ceq evalStmt(function(STR, PARAMS, S), [ FUNCS | VARS | STACK ]) = { void, [ func(STR, PARAMS, S) ; FUNCS | VARS | STACK ] } if validState([ FUNCS | VARS | STACK ]) [owise] .
 
     --- function call
 
-    eq evalExpr(call(STR, ARGS), [ func(STR, PARAMS, S) ; FUNCS | VARS ]) = { 
-        getReturnValue(evalStmt(
-            S, 
+    eq evalExpr(call(STR, ARGS), [ func(STR, PARAMS, S) ; FUNCS | VARS | STACK ]) = 
+        functionCallResult(PARAMS, [ func(STR, PARAMS, S) ; FUNCS | VARS | STACK ], evalStmt(
+            S,
             [ 
                 --- evaluate body of the function based on the current state and argument substitutions
                 func(STR, PARAMS, S) ; FUNCS 
-                | addArgs(VARS, ARGS, PARAMS, [ func(STR, PARAMS, S) ; FUNCS | VARS ])
+                | getVars(addArgs(ARGS, PARAMS, [ func(STR, PARAMS, S) ; FUNCS | VARS | STACK ]))
+                | getStack(addArgs(ARGS, PARAMS, [ func(STR, PARAMS, S) ; FUNCS | VARS | STACK ]))
             ]
-        )),
-        [ func(STR, PARAMS, S) ; FUNCS |
-        --- rollback substituted arguments (but keep global changes)
-        rollbackVars(PARAMS, VARS, getState(evalStmt(
-            S, 
-            [ 
-                func(STR, PARAMS, S) ; FUNCS 
-                | addArgs(VARS, ARGS, PARAMS, [ func(STR, PARAMS, S) ; FUNCS | VARS ])
-            ]
-        )))
+        )) .
+
+    var RES : EvalResult .
+
+    op functionCallResult : FuncParams State EvalResult -> [EvalResult] .
+    ceq functionCallResult(PARAMS, [ FUNCS | VARS | STACK ], {V, St}) ={ 
+        getReturnValue({V, St}),
+        [ FUNCS
+        --- rollback variables (no globals)
+        | VARS
+        | getStack(St)
         ]
-    }
+    } if validState(St) .
+
+    ceq evalStmt($while(E, S), St) = (if getBool(getValue(evalExpr(E, St))) then 
+        evalStmt($while(E, S), getState(evalStmt(S, St)))
+    else
+        evalStmt(pass, St)
+    fi) if validState(St) .
+
+    eq evalStmt($ifelse(E, S, S1), St) = (if getBool(getValue(evalExpr(E, St))) then 
+        evalStmt(S, St) 
+    else 
+        evalStmt(S1, St)
+    fi)
     .
-
-    ceq evalStmt($while(E, S), [ FUNCS | VARS ]) 
-        = evalStmt($while(E, S), getState(evalStmt(S, [ FUNCS | VARS ]))) 
-    if getBool(getValue(evalExpr(E, [ FUNCS | VARS ]))) and valid(VARS) .
-    
-    eq evalStmt($while(E, S), [ FUNCS | VARS ]) = evalStmt(pass, [ FUNCS | VARS ]) [owise] .
-
-    ceq evalStmt($ifelse(E, S, S1), [ FUNCS | VARS ]) = evalStmt(S, [ FUNCS | VARS ]) if getBool(getValue(evalExpr(E, [ FUNCS | VARS ]))) .
-    eq evalStmt($ifelse(E, S, S1), [ FUNCS | VARS ]) = evalStmt(S1, [ FUNCS | VARS ]) [owise] .
 
     --- program abortion
     eq evalExpr(S, aborted(VARS)) = { void, aborted(VARS) } .
     eq evalStmt(S, aborted(VARS)) = { void, aborted(VARS) } .
-    eq evalStmt(abort, [ FUNCS | VARS ]) = { void, aborted(VARS) } .
+    eq evalStmt(abort, St) = { void, aborted(getVars(St)) } .
 
-    op getReturnValue : EvalResult -> Value .
-    eq getReturnValue({ void, [ FUNCS | returnVal(V) ; VARS ] }) = V .
+    var Io : IO .
+    eq evalStmt($lock(E, Io), St) = { void, locked(getState(evalRefExpr(E, St)), getRef(getValue(evalRefExpr(E, St))), Io) } .
+
+    eq evalStmt($dispatch(E, Io), St) = evalDispatch(evalExpr(E, St), Io).
+
+    op evalDispatch : EvalResult IO ~> EvalResult .
+    eq evalDispatch({V, St}, Io) = dispatched({ void, St }, V, Io) .
+
+    op getReturnValue : EvalResult -> [Value] .
+    eq getReturnValue({ void, [ FUNCS | returnVal(V) ; VARS | STACK ] }) = V .
     eq getReturnValue({ void, aborted(VARS) }) = void .
+    eq getReturnValue({ V, St }) = void [owise] .
 
 
     var ARG : ArgAST .
     var ARGLIST : ArgListAST .
     var PARAM : ParamAST .
     var PARAMLIST : ParamListAST .
+    var N' : Nat .
 
-    --- rolling back variable substitutions after function call
-    op rollbackVars : FuncParams VarStorage State -> VarStorage .
-    eq rollbackVars(params(id(STR), PARAMLIST), STR := V ; VARS, [ FUNCS | STR := V' ; VARS' ])
-    =
-        STR := V ; rollbackVars(params(PARAMLIST), VARS, [ FUNCS | VARS' ]) .
+    eq evalRefExpr(id(STR), [ FUNCS | STR := N ; VARS | STACK ]) = { refVal(N), [ FUNCS | STR := N ; VARS | STACK ] } .
+    eq evalRefExpr(id(STR), [ FUNCS | VARS | STACK ]) = { refVal(lastIndex(STACK)), [ FUNCS | STR := lastIndex(STACK) ; VARS | pushStack(void, STACK) ] } [owise] .
 
-    eq rollbackVars(params(id(STR), PARAMLIST), VARS, [ FUNCS | STR := V' ; VARS' ])
-    =
-        rollbackVars(params(PARAMLIST), VARS, [ FUNCS | VARS' ]) [owise] .
-
-    eq rollbackVars(params(empty), VARS, [ FUNCS | VARS' ])
-    =
-        VARS' .
-
-    eq rollbackVars(params(PARAMLIST), VARS, aborted(VARS'))
-    =
-        VARS' .
 
     --- assigning variables for function call
-    op assignVar : VarStorage String ExprAST State -> VarStorage .
-    eq assignVar((STR := V ; VARS), STR, E, St) = STR := getValue(evalExpr(E, St)) ; VARS .
-    eq assignVar((VARS), STR, E, St) = STR := getValue(evalExpr(E, St)) ; VARS [owise] .
+    op assignVar : String ExprAST State -> State .
+    eq assignVar(STR, E, [ FUNCS | STR := N ; VARS | STACK ]) = 
+        [ FUNCS 
+        | STR := lastIndex(STACK) ; VARS 
+        | pushStack(getValue(evalExpr(E, [ FUNCS | STR := N ; VARS | STACK ])), STACK)
+        ] .
+    eq assignVar(STR, E, [ FUNCS | VARS | STACK ]) = 
+        [ FUNCS 
+        | STR := lastIndex(STACK) ; VARS 
+        | pushStack(getValue(evalExpr(E, [ FUNCS | VARS | STACK ])), STACK)
+        ] [owise] .
 
-    op addArgs : VarStorage CallArgs FuncParams State -> VarStorage .
-    eq addArgs(VARS, args(E, ARGLIST), params(id(STR), PARAMLIST), St) = addArgs(assignVar(VARS, STR, E, St), args(ARGLIST), params(PARAMLIST), St) .
-    eq addArgs(VARS, args(empty), params(empty), St) = VARS .
+    op addArgs : CallArgs FuncParams State -> State .
+    eq addArgs(args(E, ARGLIST), params(id(STR), PARAMLIST), St) = addArgs(args(ARGLIST), params(PARAMLIST), assignVar(STR, E, St)) .
+    eq addArgs(args(empty), params(empty), St) = St .
+
+    var ARR : Array{Nat, Value} .
+
+    op assignValue : Nat Value State -> State .
+    ceq assignValue(N, V, [ FUNCS | VARS | stack(N', ARR) ]) = 
+        [ FUNCS | VARS | stack(N', insert(N, V, ARR)) ]
+    if N < N' .
+
+    op pushStack : Value Stack -> Stack .
+    eq pushStack(V, stack(N', ARR)) = stack(N' + 1, insert(N', V, ARR)) .
+
+    op getStackValue : Nat State -> Value .
+    eq getStackValue(N, [ FUNCS | VARS | stack(N', ARR) ]) = ARR [ N ] .
+
+    op lastIndex : Stack -> Nat .
+    eq lastIndex(stack(N, ARR)) = N .
+
+    op getStack : State -> Stack .
+    eq getStack([ FUNCS | VARS | STACK ]) = STACK .
+
+    var ~RES : [EvalResult] .
+    var ~St : [State] .
+    var ~V : [Value] .
+    op unlock : EvalResult Value -> [EvalResult] .
+    op unlockState : State Value -> [State] .
+    
+    eq unlock(functionCallResult(PARAMS, St, ~RES), V) = functionCallResult(PARAMS, St, unlock(~RES, V)) .
+    eq unlock(evalStmt(S, ~St), V) = evalStmt(S, unlockState(~St, V)) .
+    eq unlock(evalExpr(E, ~St), V) = evalExpr(E, unlockState(~St, V)) .
+    eq unlock(evalAssign(E, ~RES), V) = evalAssign(E, unlock(~RES, V)) .
+    eq unlock(evalReturn(~RES), V) = evalReturn(unlock(~RES, V)) .
+    eq unlock({V', ~St}, V) = {V', unlockState(~St, V)} .
+
+    eq unlockState(locked(St, N, Io), V) = assignValue(N, V, St) .
+    eq unlockState(getState(~RES), V) = getState(unlock(~RES, V)) .
+
+
+    eq functionCallResult(PARAMS, St', dispatched(~RES, V, Io)) = dispatched(functionCallResult(PARAMS, St', ~RES), V, Io) .
+    eq evalStmt(S, getState(dispatched(~RES, V, Io))) = dispatched(evalStmt(S, getState(~RES)), V, Io) .
 endfm
 
 
@@ -394,6 +523,9 @@ fmod LANG is
     ceq process('token[T]) = int(downTerm(getTerm(parsePredefined(T, 'INT, 'Int)), 0)) 
     if parsePredefined(T, 'INT, 'Int) :: ResultPair .
 
+    ceq process('token[T]) = float(downTerm(getTerm(parsePredefined(T, 'FLOAT, 'Float)), 0.0)) 
+    if parsePredefined(T, 'FLOAT, 'Float) :: ResultPair .
+
     ceq process('token[T]) = str(downTerm(getTerm(parsePredefined(T, 'STRING, 'String)), "")) 
     if parsePredefined(T, 'STRING, 'String) :: ResultPair .
 
@@ -402,6 +534,8 @@ fmod LANG is
 
     eq process('_+_[T, T1]) = $add(process(T), process(T1)) .
     eq process('_-_[T, T1]) = $sub(process(T), process(T1)) .
+    eq process('_*_[T, T1]) = $mult(process(T), process(T1)) .
+    eq process('_/_[T, T1]) = $div(process(T), process(T1)) .
     eq process('_==_[T, T1]) = $eq(process(T), process(T1)) .
     eq process('_!=_[T, T1]) = $ne(process(T), process(T1)) .
     eq process('_>_[T, T1]) = $gt(process(T), process(T1)) .
@@ -501,18 +635,32 @@ mod FILE-READER is
         
 endm
 
+fmod LANG-TEST-FUNCS is
+    protecting LANG-SEMANTICS .
+
+
+    op stdio : -> IO [ctor] .
+
+    op funcs : -> FuncStorage .
+    eq funcs = func("read", params(empty), $lock(id("res"), stdio) ; return(id("res")))
+        ; func("write", params(id("s")), $dispatch(id("s"), stdio))
+    .
+endfm
+
 ---(
     Utility functions for easy execution
 )
 mod LANG-IO is
     protecting LANG .
     protecting LANG-SEMANTICS .
+    protecting LANG-TEST-FUNCS .
     extending LEXICAL .
     protecting FILE-READER .
 
     vars S TEXT : String .
     var QID : Qid .
     var QIDS : QidList .
+    var A : AST .
 
     op preParse : String -> ResultPair? .
     eq preParse(S) = metaParse(upModule('LANG-SYNTAX, false), tokenize(S), 'TopLevel) .
@@ -521,42 +669,21 @@ mod LANG-IO is
     eq parse(S) = process(getTerm(metaParse(upModule('LANG-SYNTAX, false), tokenize(S), 'TopLevel))) .
 
     op execute : String -> EvalResult .
-    eq execute(S) = evalStmt(parse(S), [empty | empty ]) .
+    eq execute(S) = evalStmt(parse(S), [funcs | empty | stack(0, empty) ]) .
 
     op executeFile : String -> EvalResult .
     eq executeFile(S) = execute(getFileContents(S)) .
+    
+    var V : Value .
+    op executeFile : String Value -> EvalResult .
+    eq executeFile(S, V) = unlock(execute(getFileContents(S)), V) .
+
+    op parseFile : String -> AST .
+    eq parseFile(S) = parse(getFileContents(S)) .
+
+    op executeAST : AST -> EvalResult .
+    eq executeAST(A) = evalStmt(A, [funcs | empty | stack(0, empty) ]) .
 endm
 
---- red in LANG : downTerm(''12, 'err) .
-
---- red in LANG : parsePredefined('"123", 'STRING, 'String) .
-
---- red execute("function main(a, b) { g = a + 6 ; return a + b ; } a = 1 ; r = 0 ; c = main(2, 5) ;") .
---- red metaParse(upModule('LANG-SYNTAX, false), tokenize("return a ;"), 'Stmt) .
---- red in LANG : metaParse(upModule('LANG-SYNTAX, false), 'function 'main '`( '`) '`{ 'pass '; '`}, 'Decl) .
---- red in LANG : metaParse(upModule('LANG-SYNTAX, false), tokenize("function main() { pass ; }"), 'Decl) .
---- red in LANG : metaParse(upModule('LANG-SYNTAX, false), tokenize("a = b ;"), 'Stmt) .
---- red in LANG : tokenize("a = b ;") .
---- red in LANG : metaParse(upModule('LANG-SYNTAX, false), 'function, 'Token) .
-
-erew executeFile("test.lang") .
-
---- red in LANG-SYNTAX : 
----     downTerm(getTerm(metaParse(
----         upModule('LANG-SYNTAX, false),
----         'a '+ '12,
----         'Expr
----     )), ')
---- .
-
---- fmod UP-DOWN-TEST is 
----     protecting META-LEVEL . 
----     sort Foo . 
----     ops a b c d : -> Foo . 
----     op f : Foo Foo -> Foo . 
----     op error : -> [Foo] . 
----     eq c = d . 
---- endfm
-
---- reduce in UP-DOWN-TEST : 
----       downTerm(upTerm(f(a, f(b, c))), error) . 
+erew executeFile("test2.lang") .
+erew executeFile("test2.lang", intVal(6)) .
