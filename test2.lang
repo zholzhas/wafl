@@ -6,9 +6,7 @@ function f() {
 function main() {
     a = 5 ;
     while (a == 5) {
-        write("hello ") ;
-        a = 6 ;
-        write("world!") ;
+        a = f() ;
     }
 }
 
@@ -16,5 +14,4 @@ function f1(a) {
     a = 2 ;
 }
 
-main() ;
-a = f() ;
+write("hello, world!") ;

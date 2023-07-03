@@ -1,0 +1,9 @@
+A value x is stored for each user in cache C and calculated from database DB.
+Initial action I takes user u and calculates C(u) <= DB(u). This is done whenever DB(u) changes.
+The cache is temporary storage and can be flushed.
+An action A takes a value y and user u, and stores C(u) <= C(u) + y.
+
+Problem: when cache is flushed, C(u) stores 0, and action A results in wrong value of C(u).
+
+
+Extended case:

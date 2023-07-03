@@ -377,11 +377,11 @@ fmod LANG-SEMANTICS is
         ]
     } if validState(St) .
 
-    ceq evalStmt($while(E, S), St) = (if getBool(getValue(evalExpr(E, St))) then 
+    eq evalStmt($while(E, S), St) = (if getBool(getValue(evalExpr(E, St))) then 
         evalStmt($while(E, S), getState(evalStmt(S, St)))
     else
         evalStmt(pass, St)
-    fi) if validState(St) .
+    fi) .
 
     eq evalStmt($ifelse(E, S, S1), St) = (if getBool(getValue(evalExpr(E, St))) then 
         evalStmt(S, St) 
@@ -687,3 +687,4 @@ endm
 
 erew executeFile("test2.lang") .
 erew executeFile("test2.lang", intVal(6)) .
+--- erew parseFile("test2.lang") .
