@@ -10,7 +10,7 @@ fmod LANG-SYNTAX is
     op token : Qid -> Token 
         [special (id-hook Bubble     (1 1) --- min/max number of any token for the term (only 1 token allowed)
                 op-hook qidSymbol (<Qids> : ~> Qid)
-                id-hook Exclude (pass, function, `(, `), ;, =, return )) ] . --- disallow special words
+                id-hook Exclude (pass, function, `(, `), ;, =, return, :, [, ], {, }, `, )) ] . --- disallow special words
 
     sort Expr .
     subsort Token < Expr .
@@ -54,6 +54,16 @@ fmod LANG-SYNTAX is
     op _`(_`) : Token ArgList -> Expr [prec 15] .
     op _,_ : ArgList ArgList -> ArgList [assoc] .
     op return_; : Expr -> Stmt .
+
+    sort DictEntrySynt DictEntryListSynt .
+    op _:_ : Expr Expr -> DictEntrySynt .
+    subsort DictEntrySynt < DictEntryListSynt .
+    op _,_ : DictEntryListSynt DictEntryListSynt -> DictEntryListSynt .
+    op {_} : DictEntryListSynt -> Expr .
+
+    op _[_] : Expr Expr -> Expr .
+
+    op [_] : ArgList -> Expr .
 endfm
 
 
@@ -91,6 +101,18 @@ fmod LANG-AST is
     op str : String -> ExprAST [ctor] . --- string literal
     op int : Int -> ExprAST [ctor] . --- integer literal
     op float : Float -> ExprAST [ctor] . --- integer literal
+
+    op list : ArgListAST -> ExprAST [ctor] .
+    op dict : DictEntryListAST -> ExprAST [ctor] .
+
+    sort DictEntryAST DictEntryListAST .
+    subsort DictEntryAST < DictEntryListAST .
+    op emptyDict : -> DictEntryListAST [ctor] .
+    op _,_ : DictEntryListAST DictEntryListAST -> DictEntryListAST [ctor] .
+    op dictItem : ExprAST ExprAST -> DictEntryAST [ctor] .
+
+    op index : ExprAST ExprAST -> ExprAST [ctor] .
+
     ops $add $sub $mult $div $gt $ge $lt $le $and $or $eq $ne : ExprAST ExprAST -> ExprAST [ctor] . --- binary operations
     op assign : ExprAST ExprAST -> StmtAST [ctor] . --- =
     op pass : -> StmtAST [ctor] . --- nothing
@@ -124,12 +146,17 @@ fmod LANG-AST is
     op floatVal : Float -> Value [ctor] .
     op boolVal : Bool -> Value [ctor] .
     op refVal : Nat -> Value [ctor] .
-    op listVal : Nat -> Value [ctor] .
+    op listVal : Nat Nat -> Value [ctor] . --- list contains its index on stack and length
+    op dictVal : Nat -> Value [ctor] .
 endfm
 
-view Value from DEFAULT to LANG-AST is
+view Value0 from DEFAULT to LANG-AST is
     sort Elt to Value .
     op 0 to delete .
+endv
+
+view Value from TRIV to LANG-AST is
+    sort Elt to Value .
 endv
 
 ---(
@@ -138,7 +165,8 @@ endv
 fmod LANG-SEMANTICS is
     protecting LANG-AST .
     protecting CONVERSION .
-    protecting ARRAY{Nat, Value} .
+    protecting ARRAY{Nat, Value0} .
+    protecting LIST{Value} .
     
     sort State .
 
@@ -167,7 +195,7 @@ fmod LANG-SEMANTICS is
     op returnVal : Value -> StoredVar [ctor] .
 
     sort Stack .
-    op stack : Nat Array{Nat, Value} -> Stack [ctor] .
+    op stack : Nat Array{Nat, Value0} -> Stack [ctor] .
 
     --- result from evaluation of a code (left contains value of evaluated expression, right is resulting state)
     sort EvalResult .
@@ -235,9 +263,11 @@ fmod LANG-SEMANTICS is
     eq toFloat(I) = float(I) .
 
     var N : Nat .
+    var N' : Nat .
 
     op isRef : Value -> Bool .
     eq isRef(refVal(N)) = true .
+    eq isRef(listVal(N, N')) = true .
     eq isRef(V) = false [owise] .
 
     op isRef : EvalResult -> Bool .
@@ -245,6 +275,15 @@ fmod LANG-SEMANTICS is
 
     op getRef : Value -> Nat .
     eq getRef(refVal(N)) = N .
+    eq getRef(listVal(N, N')) = N .
+
+    op isList : Value -> Bool .
+    eq isList(listVal(N, N')) = true .
+    eq isList(V) = false [owise] .
+
+    op getLength : Value -> Nat .
+    eq getLength(listVal(N, N')) = N' .
+
 
     vars E E1 : ExprAST .
     vars S S1 : StmtAST .
@@ -262,7 +301,21 @@ fmod LANG-SEMANTICS is
     op aborted : VarStorage ~> State [ctor] .
     op error : String ~> State [ctor] .
     op locked : State Nat IO ~> State [ctor] .
-    op dispatched : EvalResult Value IO ~> EvalResult [ctor] .
+    op dispatched : EvalResult IOValue IO ~> EvalResult [ctor] .
+
+    sort IOValue .
+    subsort Value < IOValue . 
+    op list : List{Value} -> IOValue .
+
+    op toIO : Value State -> IOValue .
+    ceq toIO(V, St) = V if not isRef(V) .
+    eq toIO(listVal(N, N'), [ FUNCS | VARS | STACK ]) = list(substackList(STACK, N, N')) .
+
+    var IOVAL : IOValue .
+
+    op toVal : IOValue State -> EvalResult .
+    ceq toVal(IOVAL, St) = {IOVAL, St} if IOVAL :: Value .
+
 
     --- if statement is just an expression evaluate it
     eq evalStmt(E, St) = evalExpr(E, St) .
@@ -321,6 +374,12 @@ fmod LANG-SEMANTICS is
     
     op getVars : State -> VarStorage .
     eq getVars([ FUNCS | VARS | STACK ]) = VARS .
+
+
+    ceq evalRefExpr(index(E, E1), St) = { refVal(getRef(getStackValue(getRef(getValue(evalRefExpr(E, St))), getState(evalRefExpr(E, St)))) + getInt(getValue(evalExpr(E1, getState(evalRefExpr(E, St)))))), getState(evalRefExpr(E, St)) }
+    if isList(getStackValue(getRef(getValue(evalRefExpr(E, St))), getState(evalRefExpr(E, St))))
+        /\ getLength(getStackValue(getRef(getValue(evalRefExpr(E, St))), getState(evalRefExpr(E, St)))) > getInt(getValue(evalExpr(E1, getState(evalRefExpr(E, St)))))
+    .
 
     --- retrieve value of the variable
     eq evalExpr(id(STR), St) = { getStackValue(getRef(getValue(evalRefExpr(id(STR), St))), getState(evalRefExpr(id(STR), St))), St } .
@@ -401,7 +460,7 @@ fmod LANG-SEMANTICS is
     eq evalStmt($dispatch(E, Io), St) = evalDispatch(evalExpr(E, St), Io).
 
     op evalDispatch : EvalResult IO ~> EvalResult .
-    eq evalDispatch({V, St}, Io) = dispatched({ void, St }, V, Io) .
+    eq evalDispatch({V, St}, Io) = dispatched({ void, St }, toIO(V, St), Io) .
 
     op getReturnValue : EvalResult -> [Value] .
     eq getReturnValue({ void, [ FUNCS | returnVal(V) ; VARS | STACK ] }) = V .
@@ -413,7 +472,16 @@ fmod LANG-SEMANTICS is
     var ARGLIST : ArgListAST .
     var PARAM : ParamAST .
     var PARAMLIST : ParamListAST .
-    var N' : Nat .
+
+    eq evalExpr(list(ARGLIST), [ FUNCS | VARS | STACK ]) = { listVal(lastIndex(STACK), length(ARGLIST)), pushListToStack(ARGLIST, [ FUNCS | VARS | STACK]) } .
+
+    op length : ArgListAST -> Nat .
+    eq length(empty) = 0 .
+    eq length(ARG , ARGLIST) = s(length(ARGLIST)) .
+
+    op pushListToStack : ArgListAST State -> State .
+    eq pushListToStack(empty, [ FUNCS | VARS | STACK ]) = [ FUNCS | VARS | STACK ] .
+    eq pushListToStack((E, ARGLIST), [ FUNCS | VARS | STACK ]) = pushListToStack(ARGLIST, [ FUNCS | VARS | pushStack(getValue(evalExpr(E, [ FUNCS | VARS | STACK ])), STACK) ]) .
 
     eq evalRefExpr(id(STR), [ FUNCS | STR := N ; VARS | STACK ]) = { refVal(N), [ FUNCS | STR := N ; VARS | STACK ] } .
     eq evalRefExpr(id(STR), [ FUNCS | VARS | STACK ]) = { refVal(lastIndex(STACK)), [ FUNCS | STR := lastIndex(STACK) ; VARS | pushStack(void, STACK) ] } [owise] .
@@ -421,27 +489,44 @@ fmod LANG-SEMANTICS is
 
     --- assigning variables for function call
     op assignVar : String ExprAST State -> State .
-    eq assignVar(STR, E, [ FUNCS | STR := N ; VARS | STACK ]) = 
+    eq assignVar(STR, E, St) = assignVar(STR, getValue(evalExpr(E, St)), getState(evalExpr(E, St))) .
+
+    op assignVar : String Value State -> State .
+    eq assignVar(STR, V, [ FUNCS | STR := N ; VARS | STACK ]) = 
         [ FUNCS 
         | STR := lastIndex(STACK) ; VARS 
-        | pushStack(getValue(evalExpr(E, [ FUNCS | STR := N ; VARS | STACK ])), STACK)
+        | pushStack(V, STACK)
         ] .
-    eq assignVar(STR, E, [ FUNCS | VARS | STACK ]) = 
+    eq assignVar(STR, V, [ FUNCS | VARS | STACK ]) = 
         [ FUNCS 
         | STR := lastIndex(STACK) ; VARS 
-        | pushStack(getValue(evalExpr(E, [ FUNCS | VARS | STACK ])), STACK)
+        | pushStack(V, STACK)
         ] [owise] .
 
     op addArgs : CallArgs FuncParams State -> State .
     eq addArgs(args(E, ARGLIST), params(id(STR), PARAMLIST), St) = addArgs(args(ARGLIST), params(PARAMLIST), assignVar(STR, E, St)) .
     eq addArgs(args(empty), params(empty), St) = St .
 
-    var ARR : Array{Nat, Value} .
+    vars ARR ARR' : Array{Nat, Value0} .
 
     op assignValue : Nat Value State -> State .
-    ceq assignValue(N, V, [ FUNCS | VARS | stack(N', ARR) ]) = 
-        [ FUNCS | VARS | stack(N', insert(N, V, ARR)) ]
+    eq assignValue(N, V, [ FUNCS | VARS | STACK ]) = 
+        [ FUNCS | VARS | assignValue(N, V, STACK) ] .
+
+    op assignValue : Nat Value Stack -> Stack .
+    ceq assignValue(N, V, stack(N', ARR)) = 
+        stack(N', insert(N, V, ARR))
+    if N < N' /\ not isRef(V) .
+
+    vars IND LEN : Nat . 
+
+    ceq assignValue(N, listVal(IND, LEN), stack(N', ARR)) = 
+        pushStack(stack(N', ARR), IND, LEN, stack(N', insert(N, listVal(N', LEN), ARR)))
     if N < N' .
+
+    op pushStack : Stack Nat Nat Stack -> Stack .
+    eq pushStack(stack(N, ARR), IND, 0, STACK) = STACK .
+    eq pushStack(stack(N, ARR), IND, s(LEN), STACK) = pushStack(stack(N, ARR), s(IND), LEN, assignValue(lastIndex(STACK), ARR[IND], pushStack(void, STACK))) .
 
     op pushStack : Value Stack -> Stack .
     eq pushStack(V, stack(N', ARR)) = stack(N' + 1, insert(N', V, ARR)) .
@@ -451,6 +536,10 @@ fmod LANG-SEMANTICS is
 
     op lastIndex : Stack -> Nat .
     eq lastIndex(stack(N, ARR)) = N .
+
+    op substackList : Stack Nat Nat -> List{Value} .
+    eq substackList(stack(N, ARR), IND, s(LEN)) = ARR[IND] substackList(stack(N, ARR), s(IND), LEN) .
+    eq substackList(STACK, IND, 0) = nil .
 
     op getStack : State -> Stack .
     eq getStack([ FUNCS | VARS | STACK ]) = STACK .
@@ -472,8 +561,10 @@ fmod LANG-SEMANTICS is
     eq unlockState(getState(~RES), V) = getState(unlock(~RES, V)) .
 
 
-    eq functionCallResult(PARAMS, St', dispatched(~RES, V, Io)) = dispatched(functionCallResult(PARAMS, St', ~RES), V, Io) .
-    eq evalStmt(S, getState(dispatched(~RES, V, Io))) = dispatched(evalStmt(S, getState(~RES)), V, Io) .
+
+    eq functionCallResult(PARAMS, St', dispatched(~RES, IOVAL, Io)) = dispatched(functionCallResult(PARAMS, St', ~RES), IOVAL, Io) .
+    eq evalStmt(S, getState(dispatched(~RES, IOVAL, Io))) = dispatched(evalStmt(S, getState(~RES)), IOVAL, Io) .
+    eq evalAssign(E, dispatched(~RES, IOVAL, Io)) = dispatched(evalAssign(E, ~RES), IOVAL, Io) .
 endfm
 
 
@@ -563,6 +654,9 @@ fmod LANG is
     eq process('if_`{_`}[T, T1]) = $ifelse(process(T), process(T1), pass) .
     eq process('if_`{_`}else`{_`}[T, T1, T2]) = $ifelse(process(T), process(T1), process(T2)) .
 
+    eq process('`[_`][T]) = list(processArgs(T)) .
+    eq process('_`[_`][T, T1]) = index(process(T), process(T1)) .
+
     op processArgs : Term ~> ArgListAST .
     eq processArgs(T) = process(T) [owise] .
     eq processArgs('_`,_[T, T1]) = processArgs(T) , processArgs(T1) .
@@ -609,8 +703,8 @@ mod FILE-READER is
     op fhIn:_ : Maybe{Oid} -> Attribute [ctor] .
     op done:_ : Bool -> Attribute [ctor] .
 
-    op getFileContents : String -> String .
-    op extractReader : Configuration -> String .
+    op getFileContents : String ~> String .
+    op extractReader : Configuration ~> String .
 
     eq getFileContents(S) = extractReader(<> < reader : Reader | result: "", fhIn: maybe, done: false > openFile(fileManager, reader, S, "r")) .
 
@@ -685,6 +779,6 @@ mod LANG-IO is
     eq executeAST(A) = evalStmt(A, [funcs | empty | stack(0, empty) ]) .
 endm
 
-erew executeFile("test2.lang") .
-erew executeFile("test2.lang", intVal(6)) .
+erew executeFile("test-list.lang") .
+--- erew executeFile("test2.lang", intVal(6)) .
 --- erew parseFile("test2.lang") .

@@ -1,6 +1,6 @@
 service a0 { 
     code {!
-        function main() {
+        function main(request) {
             a = 1 + 5 ;
             respond("123") ;
         }
@@ -8,12 +8,4 @@ service a0 {
     routes {
         "/main" -> "main"
     }
-};
-
-service a1 { 
-    empty 
-}; 
-
-service a2 { 
-    empty 
-};
+}

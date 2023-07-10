@@ -6,4 +6,49 @@ An action A takes a value y and user u, and stores C(u) <= C(u) + y.
 Problem: when cache is flushed, C(u) stores 0, and action A results in wrong value of C(u).
 
 
-Extended case:
+service backend {
+    code {!
+        function addFavorite(request) {
+            user = request.user ;
+            if (user.type == "guest") {
+                send("db", "guest-insert-favorite", { guest_id : user.session }) ;
+                response = send("db", "guest-get-favorites", user.session) ;
+                send("cache", "set", { key : "guest:" + user.session , value : length(response) }) ;
+            } else if (user.type == "user") {
+                send("db", "user-insert-favorite", { user_id : user.id }) ;
+                response = send("db", "user-get-favorites", user.id) ;
+                send("cache", "set", { key : "user:" + user.id , value : length(response) }) ;
+            }
+        }
+    !}
+    routes {
+        "/add-favorite" -> addFavorite
+    }
+}
+
+cache {
+    persistent keys = {}
+    routes {
+        "set" -> set
+        "get" -> get
+    }
+    code {!
+        function set(request) {
+            k = getPersistent("keys") ;
+            k [ request.key ] = request.value ;
+            setPersistent("keys", k) ;
+        }
+        function get(request) {
+            k = getPersistent("keys") ;
+            respond(k) ;
+        }
+    !}
+}
+
+$cli {
+    code {! !}
+}
+
+
+a = 5 ;
+send("service", { value : a }) ;
