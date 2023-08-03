@@ -1,0 +1,154 @@
+
+---(mod CLI is
+    protecting LANG-EXECUTION .
+    protecting (LANG + LANG-IO) * (op process : Term ~> AST to processLang) .
+    protecting META-LEVEL .
+    protecting LEXICAL .
+    protecting SERVER-AST .
+
+    op cliReader : -> Oid [ctor] .
+    op CliReader : -> Cid [ctor] .
+
+    op buf :_ : String -> Attribute [ctor] .
+    op ready :_ : Bool -> Attribute [ctor] .
+
+    op cliIO : -> IO [ctor] .
+    op cliQuit : -> IO [ctor] .
+
+    op print : IOValue -> Msg [ctor] .
+    op quit : -> Msg [ctor] .
+
+    op quitted : EvalResult ~> EvalResult .
+
+    op cli : ~> Object .
+    op cli : Environment -> Object .
+    eq cli = cli({< executor : Executor | 
+            currentResult : {void, [cliFunctions | empty | stack(0, empty)]}, 
+            initialState : ([ cliFunctions | empty | stack(0, empty) ]),
+            waiting : none
+        > <>}) .
+    
+    op cliStop : -> Msg [ctor] .
+    rl cli({<> quit CONF}) => cliStop .
+
+    op cliFunctions : -> FuncStorage .
+    eq cliFunctions =
+        defaultFunctions ;
+        func("print", params(id("value")), $dispatch(id("value"), cliIO)) ;
+        func("quit", params(empty), $dispatch(int(0), cliQuit))
+    .
+
+    var CONF : Configuration .
+    vars S INPUT : String .
+    var IOVAL : IOValue .
+    var ~RES : [EvalResult] .
+    var RES : EvalResult .
+    var STATE : State .
+    var FUNCS : FuncStorage .
+    var VARS : VarStorage .
+    var STACK : Stack .
+    var CODE : StmtAST .
+    var ATTRS : AttributeSet .
+
+    rl < executor : Executor | 
+            currentResult : dispatched(~RES, IOVAL, cliIO), 
+            ATTRS
+        >
+    =>
+        < executor : Executor | 
+            currentResult : ~RES,
+            ATTRS
+        >
+        write(stdout, executor, printTokens(metaPrettyPrint(upModule('LANG-SEMANTICS, true), none, 
+                upTerm(IOVAL), 
+                mixfix)) + "\n")
+    .
+
+    rl < executor : Executor | 
+            currentResult : dispatched(~RES, IOVAL, cliQuit), 
+            ATTRS
+        >
+    =>
+        < executor : Executor | 
+            currentResult : quitted(~RES),
+            ATTRS
+        >
+        quit
+    .
+
+    var O' : Oid .
+
+    rl < cliReader : CliReader | ready : false, ATTRS >
+        wrote(cliReader, stdout)
+    =>
+        < cliReader : CliReader | ready : true, ATTRS >
+    .
+
+    rl < cliReader : CliReader | buf : S, ready : true, ATTRS >
+    =>
+        < cliReader : CliReader | buf : S, ready : false, ATTRS >
+        getLine(stdin, cliReader, "# ")
+    .
+
+    rl < cliReader : CliReader | buf : S, ready : false, ATTRS >
+        gotLine(cliReader, O', INPUT)
+    =>
+        if toEval(tokenize(S + INPUT)) then
+            < cliReader : CliReader | buf : "", ready : false, ATTRS >
+            if (parse(S + INPUT) :: StmtAST) then
+                evaluate(parse(S + INPUT))
+            else
+                write(stdout, cliReader, "No parse.\n")
+            fi
+        else 
+            < cliReader : CliReader | buf : (S + INPUT), ready : true, ATTRS >
+        fi
+    .
+
+    var ATTRS' : AttributeSet .
+
+    rl evaluating(CODE)
+        < cliReader : CliReader | ready : false, ATTRS' >
+    =>
+        < cliReader : CliReader | ready : true, ATTRS' >
+    . 
+
+
+    var QIDList : QidList .
+    var QID : Qid .
+
+    op toEval : QidList -> Bool .
+    eq toEval(QIDList ';) = unclosed(QIDList) <= 0 .
+    ceq toEval(QIDList '`}) = unclosed(QIDList '`}) <= 0 if metaParse(upModule('LANG-SYNTAX, false), QIDList '`}, 'Stmt) :: ResultPair .
+    eq toEval(QIDList) = false [owise] .
+
+    op unclosed : QidList -> Int .
+    eq unclosed(QIDList '`}) = _-_(unclosed(QIDList), 1) .
+    eq unclosed(QIDList '`{) = unclosed(QIDList) + 1 .
+    eq unclosed(nil) = 0 .
+    ceq unclosed(QIDList QID) = unclosed(QIDList) if QID =/= '`{ /\ QID =/= '`} .
+
+    
+    var ID : Nat .
+    var S'' : SemServiceId .
+    var PATH' : String .
+    vars REQ RESP : IOValue .
+
+    op cliPrompt : StmtAST -> Msg [ctor] .
+
+    rl cliPrompt(CODE) cli({ CONF }) => cli({ CONF evaluate(CODE) }) .
+
+    rl connectionManager(ID)
+        cli({ outcomingRequest(S'', PATH', REQ) CONF })
+    =>
+        connectionManager(ID + 1)
+        connection(ID, $cli, S'', httpRequest(PATH', REQ))
+        cli({ CONF })
+    .
+
+    rl connection(ID, $cli, S'', httpRequest(PATH', REQ), response(RESP))
+        cli({ CONF })
+    =>
+        cli({ incomingResponse(RESP) CONF })
+    .
+endm)

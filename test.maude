@@ -1,0 +1,18 @@
+mod META-TEST is
+    protecting META-LEVEL .
+
+    sort C .
+    sort B A .
+    subsort A B < C .
+
+    op s : C C -> C .
+
+    op a : -> A .
+    op b : -> B .
+    op bb : -> B .
+    op bbb : -> B .
+
+    eq b = bb .
+    eq b = bbb .
+
+endm

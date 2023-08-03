@@ -3,6 +3,7 @@
     This module defines parsing of the language input
 )
 fmod LANG-SYNTAX is
+
     protecting QID-LIST .
 
     --- special definition for any token read by maude tokenizer
@@ -10,7 +11,7 @@ fmod LANG-SYNTAX is
     op token : Qid -> Token 
         [special (id-hook Bubble     (1 1) --- min/max number of any token for the term (only 1 token allowed)
                 op-hook qidSymbol (<Qids> : ~> Qid)
-                id-hook Exclude (pass, function, `(, `), ;, =, return, :, [, ], {, }, `, )) ] . --- disallow special words
+                id-hook Exclude (pass, function, `(, `), ;, =, return, :, [, ], {, }, `, , true, false )) ] . --- disallow special words
 
     sort Expr .
     subsort Token < Expr .
@@ -25,20 +26,20 @@ fmod LANG-SYNTAX is
     subsort TokenList < ArgList .
 
     --- Parsing
-    op _; : Expr -> Stmt .
-    op _+_ : Expr Expr -> Expr [gather (e E)] .
-    op _-_ : Expr Expr -> Expr [gather (e E)] .
-    op _*_ : Expr Expr -> Expr [gather (e E)] .
-    op _/_ : Expr Expr -> Expr [gather (e E)] .
+    op _; : Expr -> Stmt [gather (&)] .
+    op _+_ : Expr Expr -> Expr [gather (e E) prec 33] .
+    op _-_ : Expr Expr -> Expr [gather (e E) prec 33] .
+    op _*_ : Expr Expr -> Expr [gather (e E) prec 31] .
+    op _/_ : Expr Expr -> Expr [gather (e E) prec 31] .
 
-    op _==_ : Expr Expr -> Expr [gather (e E)] .
-    op _!=_ : Expr Expr -> Expr [gather (e E)] .
-    op _>_ : Expr Expr -> Expr [gather (e E)] .
-    op _<_ : Expr Expr -> Expr [gather (e E)] .
-    op _>=_ : Expr Expr -> Expr [gather (e E)] .
-    op _<=_ : Expr Expr -> Expr [gather (e E)] .
-    op _&&_ : Expr Expr -> Expr [gather (e E)] .
-    op _||_ : Expr Expr -> Expr [gather (e E)] .
+    op _==_ : Expr Expr -> Expr [gather (e e) prec 51] .
+    op _!=_ : Expr Expr -> Expr [gather (e e) prec 51] .
+    op _>_ : Expr Expr -> Expr [gather (e E) prec 37] .
+    op _<_ : Expr Expr -> Expr [gather (e E) prec 37] .
+    op _>=_ : Expr Expr -> Expr [gather (e E) prec 37] .
+    op _<=_ : Expr Expr -> Expr [gather (e E) prec 37] .
+    op _&&_ : Expr Expr -> Expr [gather (e E) prec 55] .
+    op _||_ : Expr Expr -> Expr [gather (e E) prec 59] .
 
     op if_{_} : Expr Stmt -> Stmt .
     op if_{_} else {_} : Expr Stmt Stmt -> Stmt .
@@ -58,12 +59,17 @@ fmod LANG-SYNTAX is
     sort DictEntrySynt DictEntryListSynt .
     op _:_ : Expr Expr -> DictEntrySynt .
     subsort DictEntrySynt < DictEntryListSynt .
-    op _,_ : DictEntryListSynt DictEntryListSynt -> DictEntryListSynt .
+    op _,_ : DictEntryListSynt DictEntryListSynt -> DictEntryListSynt [assoc prec 50] .
     op {_} : DictEntryListSynt -> Expr .
+    op {} : -> Expr .
+    op _._ : Expr Token -> Expr [prec 10 gather (E e)] .
 
-    op _[_] : Expr Expr -> Expr .
+    op _[_] : Expr Expr -> Expr [prec 10 gather (E &)] .
 
     op [_] : ArgList -> Expr .
+    op [] : -> Expr .
+
+    ops true false : -> Expr .
 endfm
 
 
@@ -101,6 +107,7 @@ fmod LANG-AST is
     op str : String -> ExprAST [ctor] . --- string literal
     op int : Int -> ExprAST [ctor] . --- integer literal
     op float : Float -> ExprAST [ctor] . --- integer literal
+    op bool : Bool -> ExprAST [ctor] .
 
     op list : ArgListAST -> ExprAST [ctor] .
     op dict : DictEntryListAST -> ExprAST [ctor] .
@@ -108,9 +115,10 @@ fmod LANG-AST is
     sort DictEntryAST DictEntryListAST .
     subsort DictEntryAST < DictEntryListAST .
     op emptyDict : -> DictEntryListAST [ctor] .
-    op _,_ : DictEntryListAST DictEntryListAST -> DictEntryListAST [ctor] .
+    op _,_ : DictEntryListAST DictEntryListAST -> DictEntryListAST [ctor assoc id: emptyDict] .
     op dictItem : ExprAST ExprAST -> DictEntryAST [ctor] .
 
+    op member : ExprAST String -> ExprAST [ctor] .
     op index : ExprAST ExprAST -> ExprAST [ctor] .
 
     ops $add $sub $mult $div $gt $ge $lt $le $and $or $eq $ne : ExprAST ExprAST -> ExprAST [ctor] . --- binary operations
@@ -146,8 +154,47 @@ fmod LANG-AST is
     op floatVal : Float -> Value [ctor] .
     op boolVal : Bool -> Value [ctor] .
     op refVal : Nat -> Value [ctor] .
-    op listVal : Nat Nat -> Value [ctor] . --- list contains its index on stack and length
-    op dictVal : Nat -> Value [ctor] .
+    op listVal : RefList -> Value [ctor] . --- list contains its index on stack and length
+    op dictVal : Dictionary -> Value [ctor] .
+
+    sort RefList .
+    subsort Nat < RefList .
+    op emptyList : -> RefList .
+    op _,_ : RefList RefList -> RefList [ctor assoc comm id: emptyList] .
+    op listItem : RefList Nat -> Nat .
+    op length : RefList -> Nat .
+
+    sort Dictionary .
+    sort DictValue .
+    subsort DictValue < Dictionary .
+    op empty : -> Dictionary [ctor] .
+    op _;_ : Dictionary Dictionary -> Dictionary [ctor assoc comm id: empty] .
+    op d : String Nat -> DictValue [ctor] .
+
+    op insert : String Nat Dictionary -> Dictionary .
+    op _[_] : Dictionary String -> Nat .
+    op hasMapping : Dictionary String -> Bool .
+
+    vars STR STR' : String .
+    vars N N' : Nat .
+    var L : RefList .
+    var D : Dictionary .
+    eq insert(STR, N, (d(STR, N') ; D)) = d(STR, N) ; D .
+    eq insert(STR, N, D) = d(STR, N) ; D [owise] .
+
+    eq (d(STR, N) ; D) [ STR ] = N .
+
+    eq hasMapping(d(STR, N) ; D, STR) = true .
+    eq hasMapping(D, STR) = false [owise] .
+    
+    eq listItem((N, L), s(N')) = listItem(L, N') .
+    eq listItem((N, L), 0) = N .
+
+    eq length(N, L) = s(length(L)) .
+    eq length(emptyList) = 0 .
+
+    sort IOValue .
+    subsort Value < IOValue . 
 endfm
 
 view Value0 from DEFAULT to LANG-AST is
@@ -159,6 +206,10 @@ view Value from TRIV to LANG-AST is
     sort Elt to Value .
 endv
 
+view IOValue from TRIV to LANG-AST is
+    sort Elt to IOValue .
+endv
+
 ---(
     Definition of how the language is interpreted
 )
@@ -166,7 +217,8 @@ fmod LANG-SEMANTICS is
     protecting LANG-AST .
     protecting CONVERSION .
     protecting ARRAY{Nat, Value0} .
-    protecting LIST{Value} .
+    protecting MAP{String, IOValue} .
+    protecting LIST{IOValue} .
     
     sort State .
 
@@ -238,7 +290,11 @@ fmod LANG-SEMANTICS is
 
     var B : Bool .
 
-    op getBool : Value -> Bool .
+    op isBool : Value ~> Bool .
+    eq isBool(boolVal(B)) = true .
+
+
+    op getBool : Value ~> Bool .
     eq getBool(boolVal(B)) = B .
 
     var F : Float .
@@ -264,10 +320,14 @@ fmod LANG-SEMANTICS is
 
     var N : Nat .
     var N' : Nat .
+    
+    var DICTARR : Dictionary .
+    var LISTARR : RefList .
 
     op isRef : Value -> Bool .
     eq isRef(refVal(N)) = true .
-    eq isRef(listVal(N, N')) = true .
+    eq isRef(listVal(LISTARR)) = true .
+    eq isRef(dictVal(DICTARR)) = true .
     eq isRef(V) = false [owise] .
 
     op isRef : EvalResult -> Bool .
@@ -275,14 +335,24 @@ fmod LANG-SEMANTICS is
 
     op getRef : Value -> Nat .
     eq getRef(refVal(N)) = N .
-    eq getRef(listVal(N, N')) = N .
 
     op isList : Value -> Bool .
-    eq isList(listVal(N, N')) = true .
+    eq isList(listVal(LISTARR)) = true .
     eq isList(V) = false [owise] .
 
+    op getList : Value -> RefList .
+    eq getList(listVal(LISTARR)) = LISTARR .
+
     op getLength : Value -> Nat .
-    eq getLength(listVal(N, N')) = N' .
+    eq getLength(listVal(LISTARR)) = length(LISTARR) .
+
+
+    op isDict : Value -> Bool .
+    eq isDict(dictVal(DICTARR)) = true .
+    eq isDict(V) = false [owise] .
+
+    op getDict : Value -> Dictionary .
+    eq getDict(dictVal(DICTARR)) = DICTARR .
 
 
     vars E E1 : ExprAST .
@@ -303,19 +373,56 @@ fmod LANG-SEMANTICS is
     op locked : State Nat IO ~> State [ctor] .
     op dispatched : EvalResult IOValue IO ~> EvalResult [ctor] .
 
-    sort IOValue .
-    subsort Value < IOValue . 
-    op list : List{Value} -> IOValue .
+    op list : List{IOValue} -> IOValue .
+    op map : Map{String, IOValue} -> IOValue .
 
     op toIO : Value State -> IOValue .
     ceq toIO(V, St) = V if not isRef(V) .
-    eq toIO(listVal(N, N'), [ FUNCS | VARS | STACK ]) = list(substackList(STACK, N, N')) .
+    eq toIO(listVal(LISTARR), St) = list(substackList(St, LISTARR)) .
+    eq toIO(dictVal(DICTARR), St) = map(toMap(DICTARR, St)) .
 
-    var IOVAL : IOValue .
+    op toMap : Dictionary State -> Map{String, IOValue} .
+    eq toMap(d(STR, N) ; DICTARR , St) = (STR |-> toIO(getStackValue(N, St), St)) , toMap(DICTARR, St) .
+    eq toMap(empty , St) = empty .
+
+    var IOVAL IOVAL' : IOValue .
+    var IOLIST : List{IOValue} .
+    var IOMAP : Map{String, IOValue} .
+
+    op getMap : IOValue -> Map{String, IOValue} .
+    eq getMap(map(IOMAP)) = IOMAP .
 
     op toVal : IOValue State -> EvalResult .
-    ceq toVal(IOVAL, St) = {IOVAL, St} if IOVAL :: Value .
+    eq toVal(V, St) = {V, St} .
+    eq toVal(list(nil), St) = { listVal(emptyList), St } .
+    eq toVal(list(IOVAL IOLIST), St) = { 
+        listVal(
+            lastIndex(getStack(getState(toVal(IOVAL, St)))), 
+            getList(getValue(toVal(
+                list(IOLIST), 
+                pushStack(getValue(toVal(IOVAL, St)), getState(toVal(IOVAL, St)))
+            )))
+        ), 
+        getState(toVal(
+            list(IOLIST), 
+            pushStack(getValue(toVal(IOVAL, St)), getState(toVal(IOVAL, St)))
+        )) 
+    } .
 
+    eq toVal(map(empty), St) = { dictVal(empty), St } .
+    eq toVal(map((STR |-> IOVAL , IOMAP)), St) = { 
+        dictVal(
+            d(STR, lastIndex(getStack(getState(toVal(IOVAL, St))))) ;
+            getDict(getValue(toVal(
+                map(IOMAP), 
+                pushStack(getValue(toVal(IOVAL, St)), getState(toVal(IOVAL, St)))
+            )))
+        ), 
+        getState(toVal(
+            map(IOMAP), 
+            pushStack(getValue(toVal(IOVAL, St)), getState(toVal(IOVAL, St)))
+        )) 
+    } .
 
     --- if statement is just an expression evaluate it
     eq evalStmt(E, St) = evalExpr(E, St) .
@@ -340,27 +447,31 @@ fmod LANG-SEMANTICS is
     ceq evalExpr($div(E, E1), St) = { floatVal(toFloat(getFloat(getValue(evalExpr(E, St)))) / toFloat(getFloat(getValue(evalExpr(E1, St))))), St }
         if (isFloat(evalExpr(E, St)) and isNum(evalExpr(E1, St))) or (isFloat(evalExpr(E1, St)) and isNum(evalExpr(E, St))) .
 
-    ceq evalExpr($eq(E, E1), St) = { boolVal(true), St }
-        if getValue(evalExpr(E, St)) == getValue(evalExpr(E1, St)) .
-    eq evalExpr($eq(E, E1), St) = { boolVal(false), St } [owise] .
+    ceq evalExpr($add(E, E1), St) = { strVal(getStr(getValue(evalExpr(E, St))) + getStr(getValue(evalExpr(E1, St)))), St }
+        if isStr(evalExpr(E, St)) and isStr(evalExpr(E1, St)) .
+
+    eq evalExpr($eq(E, E1), St) = { boolVal(getValue(evalExpr(E, St)) == getValue(evalExpr(E1, St))), St } .
     
-    ceq evalExpr($ne(E, E1), St) = { boolVal(true), St }
-        if getValue(evalExpr(E, St)) =/= getValue(evalExpr(E1, St)) .
-    eq evalExpr($ne(E, E1), St) = { boolVal(false), St } [owise] .
+    eq evalExpr($ne(E, E1), St) = { boolVal(getValue(evalExpr(E, St)) =/= getValue(evalExpr(E1, St))), St } .
     
-    ceq evalExpr($lt(E, E1), St) = { boolVal(true), St }
-        if isInt(evalExpr(E, St)) and isInt(evalExpr(E1, St)) and getInt(getValue(evalExpr(E, St))) < getInt(getValue(evalExpr(E1, St))) .
-    ceq evalExpr($lt(E, E1), St) = { boolVal(false), St } if isInt(evalExpr(E, St)) and isInt(evalExpr(E1, St)) [owise] .
+    ceq evalExpr($lt(E, E1), St) = { boolVal(getInt(getValue(evalExpr(E, St))) < getInt(getValue(evalExpr(E1, St)))), St }
+        if isInt(evalExpr(E, St)) and isInt(evalExpr(E1, St)) .
     
-    ceq evalExpr($gt(E, E1), St) = { boolVal(true), St }
-        if isInt(evalExpr(E, St)) and isInt(evalExpr(E1, St)) and getInt(getValue(evalExpr(E, St))) > getInt(getValue(evalExpr(E1, St))) .
-    ceq evalExpr($gt(E, E1), St) = { boolVal(false), St } if isInt(evalExpr(E, St)) and isInt(evalExpr(E1, St)) [owise] .
+    ceq evalExpr($gt(E, E1), St) = { boolVal(getInt(getValue(evalExpr(E, St))) > getInt(getValue(evalExpr(E1, St)))), St }
+        if isInt(evalExpr(E, St)) and isInt(evalExpr(E1, St)) .
+
+    eq evalExpr($and(E, E1), St) = { boolVal(getBool(getValue(evalExpr(E, St))) and getBool(getValue(evalExpr(E1, getState(evalExpr(E, St)))))), getState(evalExpr(E1, getState(evalExpr(E, St)))) } .
+    eq evalExpr($or(E, E1), St) = { boolVal(getBool(getValue(evalExpr(E, St))) or getBool(getValue(evalExpr(E1, getState(evalExpr(E, St)))))), getState(evalExpr(E1, getState(evalExpr(E, St)))) } .
+
 
     var VARS VARS' : VarStorage .
     var FUNCS : FuncStorage .
     vars PARAMS PARAMS' : FuncParams .
     var ARGS : CallArgs .
     var STACK : Stack .
+    
+    var DICT : DictEntryListAST .
+    var DICTITEM : DictEntryAST .
 
     op validState : State -> Bool .
     eq validState([ FUNCS | VARS | STACK ]) = valid(VARS) .
@@ -376,19 +487,124 @@ fmod LANG-SEMANTICS is
     eq getVars([ FUNCS | VARS | STACK ]) = VARS .
 
 
-    ceq evalRefExpr(index(E, E1), St) = { refVal(getRef(getStackValue(getRef(getValue(evalRefExpr(E, St))), getState(evalRefExpr(E, St)))) + getInt(getValue(evalExpr(E1, getState(evalRefExpr(E, St)))))), getState(evalRefExpr(E, St)) }
+    ceq evalRefExpr(index(E, E1), St) = { 
+        refVal(
+            listItem(
+                getList(getStackValue(getRef(getValue(evalRefExpr(E, St))), getState(evalRefExpr(E, St)))),
+                getInt(getValue(evalExpr(E1, getState(evalRefExpr(E, St)))))
+            )
+        ), 
+        getState(evalExpr(E1, getState(evalRefExpr(E, St)))) 
+    }
     if isList(getStackValue(getRef(getValue(evalRefExpr(E, St))), getState(evalRefExpr(E, St))))
         /\ getLength(getStackValue(getRef(getValue(evalRefExpr(E, St))), getState(evalRefExpr(E, St)))) > getInt(getValue(evalExpr(E1, getState(evalRefExpr(E, St)))))
     .
 
+    ceq evalRefExpr(index(E, E1), St) = evalRefExpr(member(E, getStr(getValue(evalExpr(E1, getState(evalRefExpr(E, St)))))), getState(evalExpr(E1, getState(evalRefExpr(E, St)))))
+    if isDict(getStackValue(getRef(getValue(evalRefExpr(E, St))), getState(evalRefExpr(E, St))))
+        /\ isStr(getValue(evalExpr(E1, getState(evalRefExpr(E, St)))))
+    .
+
+
+    op evalClone : ExprAST State ~> EvalResult .
+    eq evalClone(E, St) = {
+        getValue(clone(getRef(getValue(evalRefExpr(E, St))), getState(evalRefExpr(E, St)))),
+        getState(clone(getRef(getValue(evalRefExpr(E, St))), getState(evalRefExpr(E, St))))
+    } .
+
+    op clone : Nat State ~> EvalResult .
+    eq clone(N, St) = cloneValue(getStackValue(N, St), St) .
+
+    op cloneValue : Value State ~> EvalResult .
+    ceq cloneValue(V, St) = { V, St } if not isRef(V) /\ validState(St) .
+    eq cloneValue(listVal(emptyList), St) = { listVal(emptyList), St } .
+    eq cloneValue(listVal(N, LISTARR), St) = { 
+        listVal(
+            lastIndex(getStack(getState(clone(N, St)))), 
+            getList(getValue(cloneValue(
+                listVal(LISTARR), 
+                pushStack(getValue(clone(N, St)), getState(clone(N, St)))
+            )))
+        ), 
+        getState(cloneValue(
+            listVal(LISTARR), 
+            pushStack(getValue(clone(N, St)), getState(clone(N, St)))
+        )) 
+    } .
+    
+    eq cloneValue(dictVal(empty), St) = { dictVal(empty), St } .
+    eq cloneValue(dictVal(d(STR, N) ; DICTARR), St) = { 
+        dictVal(
+            d(STR, lastIndex(getStack(getState(clone(N, St))))) ;
+            getDict(getValue(cloneValue(
+                dictVal(DICTARR), 
+                pushStack(getValue(clone(N, St)), getState(clone(N, St)))
+            )))
+        ), 
+        getState(cloneValue(
+            dictVal(DICTARR), 
+            pushStack(getValue(clone(N, St)), getState(clone(N, St)))
+        )) 
+    } .
+
+    ceq evalRefExpr(member(E, STR), St) = {
+        refVal(
+            getDict(getStackValue(
+                getRef(getValue(evalRefExpr(E, St))), 
+                getState(evalRefExpr(E, St))
+            )) [ STR ]
+        ),
+        getState(evalRefExpr(E, St))
+    } if hasMapping(getDict(getStackValue(
+                getRef(getValue(evalRefExpr(E, St))), 
+                getState(evalRefExpr(E, St))
+            )), STR) .
+
+    ceq evalRefExpr(member(E, STR), St) = {
+        refVal(
+            lastIndex(getStack(getState(evalRefExpr(E, St))))
+        ),
+        assignValue(
+            getRef(getValue(evalRefExpr(E, St))),
+            dictVal(getDict(getStackValue(getRef(getValue(evalRefExpr(E, St))), St)) ; d(STR, lastIndex(getStack(getState(evalRefExpr(E, St)))))),
+            pushStack(void, getState(evalRefExpr(E, St)))
+        )
+    } if not hasMapping(getDict(getStackValue(
+                getRef(getValue(evalRefExpr(E, St))), 
+                getState(evalRefExpr(E, St))
+            )), STR) .
+
+
+    ceq evalExpr(member(E, STR), St) = evalClone(member(E, STR), St)
+    if hasMapping(getDict(getStackValue(
+                getRef(getValue(evalRefExpr(E, St))), 
+                getState(evalRefExpr(E, St))
+            )), STR) .
+
+    ceq evalExpr(index(E, E1), St) = evalClone(index(E, E1), St)
+    if 
+        (
+            isList(getStackValue(getRef(getValue(evalRefExpr(E, St))), getState(evalRefExpr(E, St))))
+            and getLength(getStackValue(getRef(getValue(evalRefExpr(E, St))), getState(evalRefExpr(E, St)))) > getInt(getValue(evalExpr(E1, getState(evalRefExpr(E, St)))))
+        ) or (
+            isDict(getStackValue(getRef(getValue(evalRefExpr(E, St))), getState(evalRefExpr(E, St))))
+            and isStr(getValue(evalExpr(E1, getState(evalRefExpr(E, St)))))
+            and hasMapping(getDict(getStackValue(
+                getRef(getValue(evalRefExpr(E, St))), 
+                getState(evalRefExpr(E, St))
+            )), getStr(getValue(evalExpr(E1, getState(evalRefExpr(E, St))))))
+        )
+    .
+
     --- retrieve value of the variable
-    eq evalExpr(id(STR), St) = { getStackValue(getRef(getValue(evalRefExpr(id(STR), St))), getState(evalRefExpr(id(STR), St))), St } .
+    eq evalExpr(id(STR), [ FUNCS | STR := N ; VARS | STACK ]) = evalClone(id(STR), [ FUNCS | STR := N ; VARS | STACK ]) .
     --- integer literal
     eq evalExpr(int(I), St) = { intVal(I), St } .
     --- string literal
     eq evalExpr(str(STR), St) = { strVal(STR), St } .
 
     eq evalExpr(float(F), St) = { floatVal(F), St } .
+    eq evalExpr(bool(B), St) = { boolVal(B), St } .
 
     --- evaluate second statement based on the resulting state of previous statement
     ceq evalStmt(S ; S1, St) = evalStmt(S1, getState(evalStmt(S, St))) if S =/= pass and S1 =/= pass and validState(St) .
@@ -413,7 +629,7 @@ fmod LANG-SEMANTICS is
 
     --- function call
 
-    eq evalExpr(call(STR, ARGS), [ func(STR, PARAMS, S) ; FUNCS | VARS | STACK ]) = 
+    ceq evalExpr(call(STR, ARGS), [ func(STR, PARAMS, S) ; FUNCS | VARS | STACK ]) = 
         functionCallResult(PARAMS, [ func(STR, PARAMS, S) ; FUNCS | VARS | STACK ], evalStmt(
             S,
             [ 
@@ -422,7 +638,26 @@ fmod LANG-SEMANTICS is
                 | getVars(addArgs(ARGS, PARAMS, [ func(STR, PARAMS, S) ; FUNCS | VARS | STACK ]))
                 | getStack(addArgs(ARGS, PARAMS, [ func(STR, PARAMS, S) ; FUNCS | VARS | STACK ]))
             ]
-        )) .
+        )) 
+    if validState([ func(STR, PARAMS, S) ; FUNCS | VARS | STACK ]) .
+
+    ceq evalExpr(call("len", args(E)), St) = {
+        intVal(length(getList(getValue(evalExpr(E, St))))),
+        getState(evalExpr(E, St))
+    } 
+    if isList(getValue(evalExpr(E, St))) .
+
+    ceq evalExpr(call("append", args(E, E1)), St) = {
+        listVal(getList(getValue(evalExpr(E, St))), lastIndex(getStack(getState(evalExpr(E1, getState(evalExpr(E, St))))))),
+        pushStack(getValue(evalExpr(E1, getState(evalExpr(E, St)))), getState(evalExpr(E1, getState(evalExpr(E, St)))))
+    } 
+    if isList(getValue(evalExpr(E, St))) .
+    
+    ceq evalExpr(call("keyExists", args(E, E1)), St) = {
+        boolVal(hasMapping(getDict(getValue(evalExpr(E, St))), getStr(getValue(evalExpr(E1, getState(evalExpr(E, St))))))),
+        getState(evalExpr(E1, getState(evalExpr(E, St))))
+    } 
+    if isDict(getValue(evalExpr(E, St))) .
 
     var RES : EvalResult .
 
@@ -436,18 +671,19 @@ fmod LANG-SEMANTICS is
         ]
     } if validState(St) .
 
-    eq evalStmt($while(E, S), St) = (if getBool(getValue(evalExpr(E, St))) then 
+    ceq evalStmt($while(E, S), St) = (if getBool(getValue(evalExpr(E, St))) then 
         evalStmt($while(E, S), getState(evalStmt(S, St)))
     else
         evalStmt(pass, St)
-    fi) .
+    fi) 
+    if isBool(getValue(evalExpr(E, St))) .
 
-    eq evalStmt($ifelse(E, S, S1), St) = (if getBool(getValue(evalExpr(E, St))) then 
+    ceq evalStmt($ifelse(E, S, S1), St) = (if getBool(getValue(evalExpr(E, St))) then 
         evalStmt(S, St) 
     else 
         evalStmt(S1, St)
     fi)
-    .
+    if isBool(getValue(evalExpr(E, St))) .
 
     --- program abortion
     eq evalExpr(S, aborted(VARS)) = { void, aborted(VARS) } .
@@ -473,15 +709,39 @@ fmod LANG-SEMANTICS is
     var PARAM : ParamAST .
     var PARAMLIST : ParamListAST .
 
-    eq evalExpr(list(ARGLIST), [ FUNCS | VARS | STACK ]) = { listVal(lastIndex(STACK), length(ARGLIST)), pushListToStack(ARGLIST, [ FUNCS | VARS | STACK]) } .
+    eq evalExpr(list(E, ARGLIST), [ FUNCS | VARS | STACK ]) = { 
+        listVal(
+            lastIndex(getStack(getState(evalExpr(E, [ FUNCS | VARS | STACK ])))), 
+            getList(getValue(evalExpr(
+                list(ARGLIST), 
+                pushStack(
+                    getValue(evalExpr(E, [ FUNCS | VARS | STACK ])), 
+                    getState(evalExpr(E, [ FUNCS | VARS | STACK ]))
+                )
+            )))
+        ), 
+        getState(evalExpr(
+            list(ARGLIST), 
+            pushStack(
+                getValue(evalExpr(E, [ FUNCS | VARS | STACK ])), 
+                getState(evalExpr(E, [ FUNCS | VARS | STACK ]))
+            )
+        )) 
+    } .
+    eq evalExpr(list(empty), [ FUNCS | VARS | STACK ]) = { listVal(emptyList), [ FUNCS | VARS | STACK ] } .
 
-    op length : ArgListAST -> Nat .
-    eq length(empty) = 0 .
-    eq length(ARG , ARGLIST) = s(length(ARGLIST)) .
 
-    op pushListToStack : ArgListAST State -> State .
-    eq pushListToStack(empty, [ FUNCS | VARS | STACK ]) = [ FUNCS | VARS | STACK ] .
-    eq pushListToStack((E, ARGLIST), [ FUNCS | VARS | STACK ]) = pushListToStack(ARGLIST, [ FUNCS | VARS | pushStack(getValue(evalExpr(E, [ FUNCS | VARS | STACK ])), STACK) ]) .
+    eq evalExpr(dict(dictItem(id(STR), E), DICT), [ FUNCS | VARS | STACK ]) = { 
+        dictVal(
+            d(STR, lastIndex(getStack(getState(evalExpr(E, [ FUNCS | VARS | STACK ]))))) ; 
+            getDict(getValue(
+                evalExpr(dict(DICT), [ FUNCS | VARS | pushStack(getValue(evalExpr(E, [ FUNCS | VARS | STACK ])), getStack(getState(evalExpr(E, [ FUNCS | VARS | STACK ])))) ])
+            ))
+        ), getState(evalExpr(dict(DICT), [ FUNCS | VARS | pushStack(getValue(evalExpr(E, [ FUNCS | VARS | STACK ])), getStack(getState(evalExpr(E, [ FUNCS | VARS | STACK ])))) ])) } .
+
+    eq evalExpr(dict(emptyDict), St) = { dictVal(empty) , St } .
+
+ 
 
     eq evalRefExpr(id(STR), [ FUNCS | STR := N ; VARS | STACK ]) = { refVal(N), [ FUNCS | STR := N ; VARS | STACK ] } .
     eq evalRefExpr(id(STR), [ FUNCS | VARS | STACK ]) = { refVal(lastIndex(STACK)), [ FUNCS | STR := lastIndex(STACK) ; VARS | pushStack(void, STACK) ] } [owise] .
@@ -516,13 +776,9 @@ fmod LANG-SEMANTICS is
     op assignValue : Nat Value Stack -> Stack .
     ceq assignValue(N, V, stack(N', ARR)) = 
         stack(N', insert(N, V, ARR))
-    if N < N' /\ not isRef(V) .
+    if N < N' .
 
     vars IND LEN : Nat . 
-
-    ceq assignValue(N, listVal(IND, LEN), stack(N', ARR)) = 
-        pushStack(stack(N', ARR), IND, LEN, stack(N', insert(N, listVal(N', LEN), ARR)))
-    if N < N' .
 
     op pushStack : Stack Nat Nat Stack -> Stack .
     eq pushStack(stack(N, ARR), IND, 0, STACK) = STACK .
@@ -530,19 +786,28 @@ fmod LANG-SEMANTICS is
 
     op pushStack : Value Stack -> Stack .
     eq pushStack(V, stack(N', ARR)) = stack(N' + 1, insert(N', V, ARR)) .
+    
+    op pushStack : Value State -> State .
+    eq pushStack(V, [ FUNCS | VARS | STACK ]) = [ FUNCS | VARS | pushStack(V, STACK) ] .
 
     op getStackValue : Nat State -> Value .
     eq getStackValue(N, [ FUNCS | VARS | stack(N', ARR) ]) = ARR [ N ] .
 
+    op getStackValue : Nat Stack -> Value .
+    eq getStackValue(N, stack(N', ARR)) = ARR [ N ] .
+
     op lastIndex : Stack -> Nat .
     eq lastIndex(stack(N, ARR)) = N .
 
-    op substackList : Stack Nat Nat -> List{Value} .
-    eq substackList(stack(N, ARR), IND, s(LEN)) = ARR[IND] substackList(stack(N, ARR), s(IND), LEN) .
-    eq substackList(STACK, IND, 0) = nil .
+    op substackList : State RefList -> List{IOValue} .
+    eq substackList(St, (N, LISTARR)) = toIO(getStackValue(N, St), St) substackList(St, LISTARR) .
+    eq substackList(St, emptyList) = nil .
 
     op getStack : State -> Stack .
     eq getStack([ FUNCS | VARS | STACK ]) = STACK .
+
+    op getStackArr : Stack -> Array{Nat, Value0} .
+    eq getStackArr(stack(N, ARR)) = ARR .
 
     var ~RES : [EvalResult] .
     var ~St : [State] .
@@ -550,21 +815,22 @@ fmod LANG-SEMANTICS is
     op unlock : EvalResult Value -> [EvalResult] .
     op unlockState : State Value -> [State] .
     
-    eq unlock(functionCallResult(PARAMS, St, ~RES), V) = functionCallResult(PARAMS, St, unlock(~RES, V)) .
-    eq unlock(evalStmt(S, ~St), V) = evalStmt(S, unlockState(~St, V)) .
-    eq unlock(evalExpr(E, ~St), V) = evalExpr(E, unlockState(~St, V)) .
-    eq unlock(evalAssign(E, ~RES), V) = evalAssign(E, unlock(~RES, V)) .
-    eq unlock(evalReturn(~RES), V) = evalReturn(unlock(~RES, V)) .
-    eq unlock({V', ~St}, V) = {V', unlockState(~St, V)} .
+    eq unlock(functionCallResult(PARAMS, St, ~RES), IOVAL) = functionCallResult(PARAMS, St, unlock(~RES, IOVAL)) .
+    eq unlock(evalStmt(S, ~St), IOVAL) = evalStmt(S, unlockState(~St, IOVAL)) .
+    eq unlock(evalExpr(E, ~St), IOVAL) = evalExpr(E, unlockState(~St, IOVAL)) .
+    eq unlock(evalAssign(E, ~RES), IOVAL) = evalAssign(E, unlock(~RES, IOVAL)) .
+    eq unlock(evalReturn(~RES), IOVAL) = evalReturn(unlock(~RES, IOVAL)) .
+    eq unlock({~V, ~St}, IOVAL) = {~V, unlockState(~St, IOVAL)} .
 
-    eq unlockState(locked(St, N, Io), V) = assignValue(N, V, St) .
-    eq unlockState(getState(~RES), V) = getState(unlock(~RES, V)) .
+    eq unlockState(locked(St, N, Io), IOVAL) = assignValue(N, getValue(toVal(IOVAL, St)), getState(toVal(IOVAL, St))) .
+    eq unlockState(getState(~RES), IOVAL) = getState(unlock(~RES, IOVAL)) .
 
 
 
     eq functionCallResult(PARAMS, St', dispatched(~RES, IOVAL, Io)) = dispatched(functionCallResult(PARAMS, St', ~RES), IOVAL, Io) .
     eq evalStmt(S, getState(dispatched(~RES, IOVAL, Io))) = dispatched(evalStmt(S, getState(~RES)), IOVAL, Io) .
     eq evalAssign(E, dispatched(~RES, IOVAL, Io)) = dispatched(evalAssign(E, ~RES), IOVAL, Io) .
+    eq {~V, getState(dispatched(~RES, IOVAL, Io))} = dispatched({~V, getState(~RES)}, IOVAL, Io) .
 endfm
 
 
@@ -623,6 +889,9 @@ fmod LANG is
     ceq process('token[T]) = id(string(downTerm(T, '$err))) 
     if valid(string(downTerm(T, '$err))) .
 
+    eq process('true.Expr) = bool(true) .
+    eq process('false.Expr) = bool(false) .
+
     eq process('_+_[T, T1]) = $add(process(T), process(T1)) .
     eq process('_-_[T, T1]) = $sub(process(T), process(T1)) .
     eq process('_*_[T, T1]) = $mult(process(T), process(T1)) .
@@ -655,6 +924,7 @@ fmod LANG is
     eq process('if_`{_`}else`{_`}[T, T1, T2]) = $ifelse(process(T), process(T1), process(T2)) .
 
     eq process('`[_`][T]) = list(processArgs(T)) .
+    eq process('`[`].Expr) = list(empty) .
     eq process('_`[_`][T, T1]) = index(process(T), process(T1)) .
 
     op processArgs : Term ~> ArgListAST .
@@ -664,6 +934,14 @@ fmod LANG is
     op processParams : Term ~> ParamListAST .
     eq processParams(T) = process(T) [owise] .
     eq processParams('_`,_[T, T1]) = processParams(T) , processParams(T1) .
+
+    eq process('`{_`}[T]) = dict(processDict(T)) .
+    eq process('`{`}.Expr) = dict(emptyDict) .
+    eq process('_._[T, T1]) = member(process(T), extractId(process(T1))) .
+
+    op processDict : Term ~> DictEntryListAST .
+    eq processDict('_`,_[T, T1]) = processDict(T), processDict(T1) .
+    eq processDict('_:_[T, T1]) = dictItem(process(T), process(T1)) .
 
     var STR : String .
 
@@ -692,40 +970,50 @@ mod FILE-READER is
     protecting FILE .
     protecting MAYBE{Oid} .
 
-    vars S TEXT : String .
+    vars F S TEXT : String .
     var FHIn : Oid .
     var Attrs : AttributeSet .
 
     
     op Reader : -> Cid [ctor] .
-    op reader : -> Oid [ctor] .
+    op reader : String -> Oid [ctor] .
     op result:_ : String -> Attribute [ctor] .
     op fhIn:_ : Maybe{Oid} -> Attribute [ctor] .
     op done:_ : Bool -> Attribute [ctor] .
+    op fileName:_ : String -> Attribute [ctor] .
 
     op getFileContents : String ~> String .
     op extractReader : Configuration ~> String .
 
-    eq getFileContents(S) = extractReader(<> < reader : Reader | result: "", fhIn: maybe, done: false > openFile(fileManager, reader, S, "r")) .
+    op scanFile : String -> Msg [ctor] .
+    op scannedFile : String String -> Msg [ctor] .
 
-    rl < reader : Reader | fhIn: maybe, Attrs > openedFile(reader, fileManager, FHIn)
+    eq getFileContents(S) = extractReader(scanFile(S)) .
+
+    rl scanFile(S) => <> < reader(S) : Reader | result: "", fhIn: maybe, done: false, fileName: S > openFile(fileManager, reader(S), S, "r") .
+
+    rl < reader(S) : Reader | fhIn: maybe, Attrs > openedFile(reader(S), fileManager, FHIn)
     =>
-        < reader : Reader | fhIn: FHIn, Attrs > getLine(FHIn, reader) .
+        < reader(S) : Reader | fhIn: FHIn, Attrs > getLine(FHIn, reader(S)) .
 
-    rl < reader : Reader | fhIn: FHIn, result: S, done: false, Attrs > gotLine(reader, FHIn, TEXT)
+    rl < reader(F) : Reader | fhIn: FHIn, result: S, done: false, Attrs > gotLine(reader(F), FHIn, TEXT)
     =>
         if TEXT =/= "" then
-            < reader : Reader | fhIn: FHIn, result: (S + TEXT), done: false, Attrs > getLine(FHIn, reader)
+            < reader(F) : Reader | fhIn: FHIn, result: (S + TEXT), done: false, Attrs > getLine(FHIn, reader(F))
         else
-            < reader : Reader | fhIn: maybe, result: S, done: true, Attrs >
-            closeFile(FHIn, reader)
+            < reader(F) : Reader | fhIn: maybe, result: S, done: true, Attrs >
+            closeFile(FHIn, reader(F))
         fi
+    .
+
+    rl < reader(F) : Reader | result: TEXT, done: true, fileName: F, Attrs > closedFile(reader(F), FHIn) <>
+    => scannedFile(F, TEXT)
     .
 
     var CONF : Configuration .
 
-    eq extractReader(< reader : Reader | result: S, done: true, Attrs > CONF)
-        = S .
+    eq extractReader(scannedFile(S, TEXT) CONF)
+        = TEXT .
         
 endm
 
@@ -768,8 +1056,8 @@ mod LANG-IO is
     op executeFile : String -> EvalResult .
     eq executeFile(S) = execute(getFileContents(S)) .
     
-    var V : Value .
-    op executeFile : String Value -> EvalResult .
+    var V : IOValue .
+    op executeFile : String IOValue -> EvalResult .
     eq executeFile(S, V) = unlock(execute(getFileContents(S)), V) .
 
     op parseFile : String -> AST .
@@ -779,6 +1067,7 @@ mod LANG-IO is
     eq executeAST(A) = evalStmt(A, [funcs | empty | stack(0, empty) ]) .
 endm
 
-erew executeFile("test-list.lang") .
+--- erew executeFile("test.lang", list(nil)) .
+erew executeFile("test.lang") .
 --- erew executeFile("test2.lang", intVal(6)) .
---- erew parseFile("test2.lang") .
+--- erew parseFile("test.lang") .

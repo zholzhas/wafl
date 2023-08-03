@@ -7,48 +7,60 @@ Problem: when cache is flushed, C(u) stores 0, and action A results in wrong val
 
 
 service backend {
-    code {!
+    code {
         function addFavorite(request) {
-            user = request.user ;
-            if (user.type == "guest") {
-                send("db", "guest-insert-favorite", { guest_id : user.session }) ;
-                response = send("db", "guest-get-favorites", user.session) ;
-                send("cache", "set", { key : "guest:" + user.session , value : length(response) }) ;
-            } else if (user.type == "user") {
-                send("db", "user-insert-favorite", { user_id : user.id }) ;
-                response = send("db", "user-get-favorites", user.id) ;
-                send("cache", "set", { key : "user:" + user.id , value : length(response) }) ;
+            user = request . user ;
+            if (user . type == "guest") {
+                send("db", "guest-insert-favorite", { guest_id : user . session }) ;
+                response = send("db", "guest-get-favorites", user . session) ;
+                send("cache", "set", { key : "guest:" + user . session , value : len(response) }) ;
+            } else if (user . type == "user") {
+                send("db", "user-insert-favorite", { user_id : user . id }) ;
+                response = send("db", "user-get-favorites", user . id) ;
+                send("cache", "set", { key : "user:" + user . id , value : len(response) }) ;
             }
         }
-    !}
+    }
     routes {
         "/add-favorite" -> addFavorite
     }
 }
 
-cache {
-    persistent keys = {}
+service cache {
+    persistent keys = {} ;
     routes {
         "set" -> set
         "get" -> get
+        "flush" -> flush
     }
-    code {!
+    code {
         function set(request) {
             k = getPersistent("keys") ;
-            k [ request.key ] = request.value ;
+            k [ request . key ] = request . value ;
             setPersistent("keys", k) ;
+            respond("ok") ;
         }
         function get(request) {
             k = getPersistent("keys") ;
             respond(k) ;
         }
-    !}
+        function flush(request) {
+            setPersistent("keys", { }) ;
+            respond("ok") ;
+        }
+    }
 }
 
-$cli {
-    code {! !}
+service db {
+    persistent favorites = [
+        {  }
+    ]
 }
 
+init {
+    user = {
+        type : "guest",
+        session : "session-0"
+    }
 
-a = 5 ;
-send("service", { value : a }) ;
+}

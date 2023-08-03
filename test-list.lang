@@ -1,6 +1,16 @@
-[ 1, 2, "three" ] ;
-four = 4 ;
-a = [ "one", 2, "three", four ] ;
-a[2] = "tres" ;
-b = a ;
-c = [ a, b ] ;
+a = [
+    {
+        type : "guest",
+        guest_id : "session-0"
+    }
+] ;
+s = "session-0" ;
+i = 0 ;
+res = [];
+while (i < len(a)) {
+    if (a [ i ] . type == "guest" && a [ i ] . guest_id == s) {
+        res = append(res, a [ i ]) ;
+    }
+    i = i + 1 ;
+}
+write(res) ;

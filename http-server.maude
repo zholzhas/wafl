@@ -1,4 +1,5 @@
 load lang.maude
+load model-checker.maude
 
 ---(
     Definition of syntax for web services
@@ -7,37 +8,27 @@ fmod SERVER-SYNTAX is
     protecting STRING .
     protecting QID-LIST .
 
-    --- tokens for a code of a web server
-    sort Code .
-    op codeTokens : QidList -> Code 
-        [special 
-            (id-hook Bubble      (1 -1) --- unlimited number of tokens
-            op-hook qidListSymbol (__ : QidList QidList ~> QidList) --- separator between tokens
-            op-hook qidSymbol    (<Qids> : ~> Qid) 
-            id-hook Exclude     (!`}))] . --- exclude token that ends the code sequence
+    including LANG-SYNTAX .
     
-    
-    --- any token
-    sort Token . 
-    op token : Qid -> Token 
+    --- service name
+    sort ServiceName . 
+    op name : Qid -> ServiceName 
         [special (id-hook Bubble     (1 1) 
-                op-hook qidSymbol (<Qids> : ~> Qid)
-                id-hook Exclude (service)) ] .
-
+                op-hook qidSymbol (<Qids> : ~> Qid)) ] .
 
     sort Component .
 
-    op code`{!_!`} : Code -> Component [ctor] .
+    op code`{_`} : TopLevel -> Component [ctor] .
     op routes {_} : Router -> Component [ctor] .
+    op persistent_=_; : Token Expr -> Component [ctor] .
 
     sort Router .
     sort Route .
     subsort Route < Router .
 
-    op _->_ : String String -> Route [ctor] .
+    op _->_ : String Token -> Route [ctor gather (e e) prec 40] .
 
-    op noRoutes : -> Router [ctor] .
-    op __ : Router Router -> Router [ctor comm assoc id: noRoutes] . 
+    op __ : Router Router -> Router [ctor assoc] . 
 
     sort ComponentList .
     subsort Component < ComponentList .
@@ -46,6 +37,7 @@ fmod SERVER-SYNTAX is
     op __ : ComponentList ComponentList -> ComponentList [ctor comm assoc id: empty] .
 
     op service_{_} : Token ComponentList -> Service [ctor] .
+    op init`{_`} : TopLevel -> Service [ctor] .
 
     sorts Service ServiceList .
     subsort Service < ServiceList .
@@ -53,7 +45,6 @@ fmod SERVER-SYNTAX is
     op __ : ServiceList ServiceList -> ServiceList [ctor assoc comm id: none] .
 
 endfm
-
 
 ---(
     Inner structure and simulation of web servers
@@ -68,18 +59,23 @@ mod SERVER-AST is
     op code : StmtAST -> SemComponent [ctor] .
     op initialState : State -> SemComponent [ctor] .
     op routes : SemRouter -> SemComponent [ctor] .
+    op persistent : String IOValue -> SemComponent [ctor] .
 
     sorts SemConnId SemConnection SemRequest SemResponse .
     subsort Nat < SemConnId .
 
     subsort SemConnection < Object .
     op connectionManager : Nat -> Object [ctor] .
-    op connection : SemConnId String String SemRequest -> SemConnection [ctor] .
-    op connection : SemConnId String String SemRequest SemResponse -> SemConnection [ctor] .
+
+    sort SemServiceId .
+    subsort String < SemServiceId .
+
+    op dummyConnection : -> SemConnection [ctor] .
+    op connection : SemConnId SemServiceId SemServiceId SemRequest -> SemConnection [ctor] .
+    op connection : SemConnId SemServiceId SemServiceId SemRequest SemResponse -> SemConnection [ctor] .
 
     op httpRequest : String IOValue -> SemRequest [ctor] .
     op response : IOValue -> SemResponse [ctor] .
-    op errorResponse : String -> SemResponse [ctor] .
 
     sort SemRouter .
     sort SemRoute .
@@ -102,7 +98,12 @@ mod SERVER-AST is
 
     sort SemService .
     subsort SemService < Object .
-    op service : String SemServer -> SemService [ctor] .
+    op service : SemServiceId SemServer -> SemService [ctor object] .
+
+    op initManager : Nat -> Object [ctor] .
+    op init : StmtAST -> SemService [ctor] .
+    op initId : Nat -> SemServiceId [ctor] .
+    op $cli : -> SemServiceId [ctor] .
 endm
 
 ---(
@@ -117,29 +118,27 @@ mod SERVER is
     var TL TL1 : TermList .
     var QIDS : QidList .
 
-    op processCodeTokens : TermList ~> QidList .
-    eq processCodeTokens((T, TL)) = downTerm(T, '$err) processCodeTokens(TL) .
-    eq processCodeTokens(empty) = nil .
-
-    op parseCode : QidList ~> StmtAST .
-    eq parseCode(QIDS) = processLang(getTerm(metaParse(upModule('LANG-SYNTAX, false), QIDS, 'TopLevel))) .
-
-    op processCode : TermList ~> StmtAST .
-    eq processCode(TL) = parseCode(processCodeTokens(TL)) .
-
     op processComponents : TermList ~> SemComponentList .
     eq processComponents('empty.ComponentList) = $empty .
     eq processComponents('__[T, TL]) = processComponents(T), processComponents(TL) .
 
-    eq processComponents('code`{!_!`}['codeTokens[TL]]) = code(processCode(TL)) .
+    eq processComponents('code`{_`}[T]) = code(processLang(T)) .
     eq processComponents('routes`{_`}[TL]) = routes(processRoutes(TL)) .
+    eq processComponents('persistent_=_;['token[T], T1]) = persistent(
+        string(downTerm(T, '$err)), 
+        toIO(
+            getValue(evalExpr(processLang(T1), [ empty | empty | stack(0, empty) ])),
+            getState(evalExpr(processLang(T1), [ empty | empty | stack(0, empty) ]))
+        )
+    ) .
+
 
     op processRoutes : TermList ~> SemRouter .
-    eq processRoutes('noRoutes.Router) = $noRoutes .
-    eq processRoutes('_->_[T, T1]) = route(
+    eq processRoutes('__[T, T1]) = processRoutes(T), processRoutes(T1) .
+    ceq processRoutes('_->_[T, 'token[T1]]) = route(
         downTerm(T, ""), 
-        downTerm(T1, "")
-    ) .
+        string(downTerm(T1, '$err))
+    ) if valid(string(downTerm(T1, '$err))).
 
     op processConfig : TermList ~> Configuration .
     eq processConfig('__[T, T1]) = processConfig(T) processConfig(T1) .
@@ -150,6 +149,7 @@ mod SERVER is
             processComponents(T1)
         )
     ) .
+    eq processConfig('init`{_`}[T]) = init(processLang(T)) .
 
 endm
 
@@ -168,7 +168,7 @@ mod LANG-EXECUTION is
     op Executor : -> Cid [ctor] .
 
     op currentResult :_ : [EvalResult] -> Attribute [ctor] .
-    op initialState :_ : State -> Attribute [ctor] .
+    op initialState :_ : [State] -> Attribute [ctor] .
     op waiting :_ : IO? -> Attribute [ctor] .
 
     sort IO? .
@@ -189,7 +189,7 @@ mod LANG-EXECUTION is
     var ATTRS : AttributeSet .
 
     eq initiate(CODE, FUNCS) = {< executor : Executor | 
-            currentResult : {void, [empty | empty | stack(0, empty)]}, 
+            currentResult : {void, getState(evalStmt(CODE, [ FUNCS | empty | stack(0, empty) ]))}, 
             initialState : getState(evalStmt(CODE, [ FUNCS | empty | stack(0, empty) ])),
             waiting : none
         >}
@@ -215,8 +215,8 @@ mod LANG-EXECUTION is
     .
 
     op connectionOut : -> IO [ctor] .
-    op outcomingRequest : String String IOValue -> Msg [msg] .
-    op incomingResponse : IOValue -> Msg [msg] .
+    op outcomingRequest : String String IOValue -> Msg [ctor] .
+    op incomingResponse : IOValue -> Msg [ctor] .
 
     op defaultFunctions : -> FuncStorage .
     eq defaultFunctions =
@@ -261,6 +261,7 @@ mod SERVER-EXECUTION is
     --- messages to communicate with executing service
     op responseSent : IOValue -> Msg [ctor] .
     op setPersistent : String IOValue -> Msg [ctor] .
+    op setPersistentOk : -> Msg [ctor] .
     op getPersistent : String -> Msg [ctor] .
     op persistentValue : IOValue -> Msg [ctor] .
 
@@ -276,7 +277,7 @@ mod SERVER-EXECUTION is
 
     var CONF : Configuration .
     var IOVAL : IOValue .
-    vars CONTR ARG : String .
+    vars CONTR ARG NAME : String .
     var ~RES : [EvalResult] .
     var RES : EvalResult .
     var STATE : State .
@@ -295,8 +296,8 @@ mod SERVER-EXECUTION is
         callController(CONTR, IOVAL)
     =>
         < executor : Executor | 
-            currentResult : evalStmt(CODE, assignVar(ARG, getValue(toVal(IOVAL, [ FUNCS ; func(CONTR, params(id(ARG)), CODE) | VARS | STACK ])), [ FUNCS ; func(CONTR, params(id(ARG)), CODE) | VARS | STACK ])), 
-            initialState : ([ FUNCS ; func(CONTR, params(id(ARG)), CODE) | VARS | STACK ]),
+            currentResult : evalStmt(CODE, assignVar(ARG, getValue(toVal(IOVAL, [ FUNCS ; func(CONTR, params(id(ARG)), CODE) | VARS | STACK ])), getState(toVal(IOVAL, [ FUNCS ; func(CONTR, params(id(ARG)), CODE) | VARS | STACK ])))), 
+            initialState : getState(toVal(IOVAL, [ FUNCS ; func(CONTR, params(id(ARG)), CODE) | VARS | STACK ])),
             ATTRS
         >
     .
@@ -306,7 +307,7 @@ mod SERVER-EXECUTION is
     eq serverFunctions =
         defaultFunctions ;
         func("respond", params(id("value")), $dispatch(id("value"), connectionIn)) ;
-        func("setPersistent", params(id("key"), id("value")), $dispatch(list(id("key"), id("value")), setPersistentValue)) ;
+        func("setPersistent", params(id("key"), id("value")), $dispatch(list(id("key"), id("value")), setPersistentValue) ; $lock(id("res"), setPersistentValue)) ;
         func("getPersistent", params(id("key")), $dispatch(id("key"), getPersistentValue) ; $lock(id("res"), getPersistentValue) ; return(id("res"))) 
     .
 
@@ -322,171 +323,68 @@ mod SERVER-EXECUTION is
         responseSent(IOVAL)
     .
 
-    op initiateServer : StmtAST String IOValue ~> Environment .
-    eq initiateServer(CODE, CONTR, IOVAL) = callController(initiate(CODE, serverFunctions), CONTR, IOVAL) .
-    
-endm
-
-mod CLI is
-    protecting LANG-EXECUTION .
-    protecting (LANG + LANG-IO) * (op process : Term ~> AST to processLang) .
-    protecting META-LEVEL .
-    protecting LEXICAL .
-    protecting SERVER-AST .
-
-    op cliReader : -> Oid [ctor] .
-    op CliReader : -> Cid [ctor] .
-
-    op buf :_ : String -> Attribute [ctor] .
-    op ready :_ : Bool -> Attribute [ctor] .
-
-    op cliIO : -> IO [ctor] .
-    op cliQuit : -> IO [ctor] .
-
-    op print : IOValue -> Msg [ctor] .
-    op quit : -> Msg [ctor] .
-
-    op quitted : EvalResult ~> EvalResult .
-
-    op cli : ~> Object .
-    op cli : Environment -> Object .
-    eq cli = cli({initiateCli}) .
-    
-    op cliStop : -> Msg [ctor] .
-    rl cli({<> quit CONF}) => cliStop .
-
-    op cliFunctions : -> FuncStorage .
-    eq cliFunctions =
-        defaultFunctions ;
-        func("print", params(id("value")), $dispatch(id("value"), cliIO)) ;
-        func("quit", params(empty), $dispatch(int(0), cliQuit))
-    .
-
-    var CONF : Configuration .
-    vars S INPUT : String .
-    var IOVAL : IOValue .
-    var ~RES : [EvalResult] .
-    var RES : EvalResult .
-    var STATE : State .
-    var FUNCS : FuncStorage .
-    var VARS : VarStorage .
-    var STACK : Stack .
-    var CODE : StmtAST .
-    var ATTRS : AttributeSet .
-
     rl < executor : Executor | 
-            currentResult : dispatched(~RES, IOVAL, cliIO), 
+            currentResult : dispatched(~RES, list(strVal(NAME) IOVAL), setPersistentValue), 
+            waiting : none,
             ATTRS
         >
     =>
         < executor : Executor | 
             currentResult : ~RES,
+            waiting : setPersistentValue,
             ATTRS
         >
-        write(stdout, executor, printTokens(metaPrettyPrint(upModule('LANG-SEMANTICS, true), none, 
-                upTerm(IOVAL), 
-                mixfix)) + "\n")
+        setPersistent(NAME, IOVAL)
     .
 
     rl < executor : Executor | 
-            currentResult : dispatched(~RES, IOVAL, cliQuit), 
+            currentResult : ~RES,
+            waiting : setPersistentValue,
+            ATTRS
+        >
+        setPersistentOk
+    =>
+        < executor : Executor | 
+            currentResult : unlock(~RES, boolVal(true)),
+            waiting : none,
+            ATTRS
+        >
+    .
+
+    rl < executor : Executor | 
+            currentResult : dispatched(~RES, strVal(NAME), getPersistentValue), 
+            waiting : none,
             ATTRS
         >
     =>
         < executor : Executor | 
-            currentResult : quitted(~RES),
+            currentResult : ~RES,
+            waiting : getPersistentValue,
             ATTRS
         >
-        quit
+        getPersistent(NAME)
     .
 
-
-    op initiateCli : -> Configuration .
-    eq initiateCli =
-        < executor : Executor | 
-            currentResult : {void, [cliFunctions | empty | stack(0, empty)]}, 
-            initialState : ([ cliFunctions | empty | stack(0, empty) ]),
-            waiting : none
+    rl < executor : Executor | 
+            currentResult : ~RES,
+            waiting : getPersistentValue,
+            ATTRS
         >
-        < cliReader : CliReader | buf : "", ready : false >
-        <>
-        write(stdout, cliReader, "WS CLI\n") 
+        persistentValue(IOVAL)
+    =>
+        < executor : Executor | 
+            currentResult : unlock(~RES, IOVAL),
+            waiting : none,
+            ATTRS
+        >
     .
 
-    var O' : Oid .
 
-    rl < cliReader : CliReader | ready : false, ATTRS >
-        wrote(cliReader, stdout)
-    =>
-        < cliReader : CliReader | ready : true, ATTRS >
-    .
-
-    rl < cliReader : CliReader | buf : S, ready : true, ATTRS >
-    =>
-        < cliReader : CliReader | buf : S, ready : false, ATTRS >
-        getLine(stdin, cliReader, "# ")
-    .
-
-    rl < cliReader : CliReader | buf : S, ready : false, ATTRS >
-        gotLine(cliReader, O', INPUT)
-    =>
-        if toEval(tokenize(S + INPUT)) then
-            < cliReader : CliReader | buf : "", ready : false, ATTRS >
-            if (parse(S + INPUT) :: StmtAST) then
-                evaluate(parse(S + INPUT))
-            else
-                write(stdout, cliReader, "No parse.\n")
-            fi
-        else 
-            < cliReader : CliReader | buf : (S + INPUT), ready : true, ATTRS >
-        fi
-    .
-
-    var ATTRS' : AttributeSet .
-
-    rl < executor : Executor | currentResult : RES, ATTRS >
-        evaluating(CODE)
-        < cliReader : CliReader | ready : false, ATTRS' >
-    =>
-        < executor : Executor | currentResult : RES, ATTRS >
-        < cliReader : CliReader | ready : true, ATTRS' >
-    . 
-
-
-    var QIDList : QidList .
-    var QID : Qid .
-
-    op toEval : QidList -> Bool .
-    eq toEval(QIDList ';) = unclosed(QIDList) <= 0 .
-    ceq toEval(QIDList '`}) = unclosed(QIDList '`}) <= 0 if metaParse(upModule('LANG-SYNTAX, false), QIDList '`}, 'Stmt) :: ResultPair .
-    eq toEval(QIDList) = false [owise] .
-
-    op unclosed : QidList -> Int .
-    eq unclosed(QIDList '`}) = _-_(unclosed(QIDList), 1) .
-    eq unclosed(QIDList '`{) = unclosed(QIDList) + 1 .
-    eq unclosed(nil) = 0 .
-    ceq unclosed(QIDList QID) = unclosed(QIDList) if QID =/= '`{ /\ QID =/= '`} .
-
+    op initiateServer : StmtAST String IOValue ~> Environment .
+    eq initiateServer(CODE, CONTR, IOVAL) = callController(initiate(CODE, serverFunctions), CONTR, IOVAL) .
     
-    var ID : Nat .
-    var S'' : String .
-    var PATH' : String .
-    vars REQ RESP : IOValue .
-
-    rl connectionManager(ID)
-        cli({ outcomingRequest(S'', PATH', REQ) CONF })
-    =>
-        connectionManager(ID + 1)
-        connection(ID, "$CLI", S'', httpRequest(PATH', REQ))
-        cli({ CONF })
-    .
-
-    rl connection(ID, "$CLI", S'', httpRequest(PATH', REQ), response(RESP))
-        cli({ CONF })
-    =>
-        cli({ incomingResponse(RESP) CONF })
-    .
 endm
+
 
 ---(
     interaction between servers and initialization of server side execution
@@ -501,16 +399,18 @@ mod SERVER-SEMANTICS is
     op process : SemConnection Environment Nat -> SemComponent [ctor] .
 
     var ID ID' : Nat .
-    var S S' S'' PATH PATH' CONTR ARG : String .
+    var PATH PATH' CONTR ARG NAME : String .
+    vars S S' S'' : SemServiceId .
     var SERV : SemComponentList .
     var CODE : StmtAST .
     var STATE : State .
     var ROUTER : SemRouter .
-    var V RESP BODY REQ : IOValue .
+    var V V' RESP BODY REQ : IOValue .
     var FUNCS : FuncStorage .
     var VARS : VarStorage .
     var STACK : Stack .
     var CONF : Configuration .
+    var CONN : SemConnection .
 
     rl connection(ID, S, S', httpRequest(PATH, V))
         service(S', server(SERV, code(CODE), routes(route(PATH, CONTR), ROUTER)))
@@ -536,7 +436,7 @@ mod SERVER-SEMANTICS is
     rl connectionManager(ID)
         service(S', server(SERV, 
             process(
-                connection(ID', S, S', httpRequest(PATH, V)), 
+                CONN, 
                 { outcomingRequest(S'', PATH', REQ) CONF }
             )
         ))
@@ -545,7 +445,7 @@ mod SERVER-SEMANTICS is
         connection(ID, S', S'', httpRequest(PATH', REQ))
         service(S', server(SERV, 
             process(
-                connection(ID', S, S', httpRequest(PATH, V)), 
+                CONN,
                 { CONF },
                 ID
             )
@@ -555,7 +455,7 @@ mod SERVER-SEMANTICS is
     rl connection(ID, S', S'', httpRequest(PATH', REQ), response(RESP))
         service(S', server(SERV, 
             process(
-                connection(ID', S, S', httpRequest(PATH, V)), 
+                CONN, 
                 { CONF },
                 ID
             )
@@ -563,188 +463,455 @@ mod SERVER-SEMANTICS is
     =>
         service(S', server(SERV, 
             process(
-                connection(ID', S, S', httpRequest(PATH, V)), 
+                CONN, 
                 { incomingResponse(RESP) CONF }
+            )
+        ))
+    .
+
+    rl initManager(ID) init(CODE) 
+    => 
+        initManager(ID + 1) 
+        service(initId(ID), server(process(dummyConnection, initiate(CODE, defaultFunctions)))) 
+    .
+
+    rl service(S, server(SERV,
+            persistent(NAME, V), 
+            process(
+                CONN, 
+                { getPersistent(NAME) CONF }
+            )
+        ))
+    =>
+        service(S, server(SERV,
+            persistent(NAME, V), 
+            process(
+                CONN, 
+                { persistentValue(V) CONF }
+            )
+        ))
+    .
+
+    rl service(S, server(SERV,
+            persistent(NAME, V), 
+            process(
+                CONN, 
+                { setPersistent(NAME, V') CONF }
+            )
+        ))
+    =>
+        service(S, server(SERV,
+            persistent(NAME, V'), 
+            process(
+                CONN, 
+                { setPersistentOk CONF }
             )
         ))
     .
 endm
 
-
-
----(
-    commands in the meta-interpreter cli mode
-)
-fmod SERVER-COMMANDS is
-    protecting STRING .
-    protecting QID-LIST .
-
-    sort Command .
-    op load : String -> Command [ctor] .
-    op loading : String -> Command [ctor] .
-    op quit : -> Command [ctor] .
-    op print : -> Command [ctor] .
-    op execute : -> Command [ctor] .
-    op waitingExecution : -> Command [ctor] .
-endfm
-
-
----(
-    CLI mode of the framework
-)
-mod SERVER-IO is
+mod PRINTER is
     protecting LEXICAL .
-    protecting CONFIGURATION .
-    protecting FILE .
-    protecting FILE-READER .
-    protecting STRING .
     protecting META-LEVEL .
-    protecting SERVER-COMMANDS .
-    protecting SERVER-EXECUTION .
     protecting SERVER-SEMANTICS .
-    protecting CLI .
-    protecting SERVER .
-    including STD-STREAM . 
 
-    vars S TEXT FILE : String .
+    op printAst : Term ~> String .
+    op printAst : Term Nat ~> String .
 
-    --- create full environment
-    op toConfig : String -> Configuration .
-    eq toConfig(S) = processConfig(getTerm(metaParse(upModule('SERVER-SYNTAX, false), tokenize(S), 'ServiceList))) .
-
-    op composition : -> Oid [ctor] .
-    op Composition : -> Cid [ctor] .
-    op action :_ : Command -> Attribute [ctor] .
-    op state :_ : Configuration -> Attribute [ctor] .
-    op inStr :_ : String -> Attribute [ctor] .
-
-    op idle : -> Command [ctor] .
-    op debug : Universal -> Msg [poly(1) ctor] .
-    
-
-    var Attrs : AttributeSet .
-    vars FHIn : Oid .
-    var CONF : Configuration .
-    var O O' : Oid .
-    var COMM : Command .
-    vars SERV SERV1 PATH BODY : String .
+    vars T T' T'' T1 T2 T3 T4 T5 : Term .
+    vars TL TL' : TermList .
     var N : Nat .
 
-    op makeMsg : Command -> Configuration .
+    op tabs : Nat -> String .
+    eq tabs(s(N)) = "\t" + tabs(N) .
+    eq tabs(0) = "" .
+
     
-    eq makeMsg(load(FILE)) = none .
-    eq makeMsg(quit) = write(stdout, composition, "Goodbye!\n") .
-    eq makeMsg(print) = none .
-    eq makeMsg(execute) = none .
-    eq makeMsg(COMM) = write(stdout, composition, "Invalid command\n") [owise] .
+    eq printAst(T) = printAst(T, 0) .
 
-    op init : -> Configuration .
-    eq init =
-        <>
-        < composition : Composition | state : (connectionManager(0)), inStr : "", action : idle >
-        write(stdout, composition, "WS Composition Verification\n") 
-    .
+    eq printAst(T, N) = tabs(N) +  printTokens(metaPrettyPrint(['SERVER-SEMANTICS], none, T, mixfix format number rat)) [owise] .
 
-    rl < composition : Composition | action : idle, Attrs >
-        wrote(composition, O')
-    =>
-        < composition : Composition | action : idle, Attrs >
-        getLine(stdin, composition, "> ")
-    .
+    eq printAst('__[T, TL], N) = if printAst(T, N) =/= "" then printAst(T, N) + "\n" else "" fi + printAst('__[TL], N) .
+    eq printAst('_`,_[T, TL], N) = if printAst(T, N) =/= "" then printAst(T, N) + "\n" else "" fi + printAst('__[TL], N) .
+    eq printAst('__[empty], N) = "" .
 
-    rl < composition : Composition | action : idle, Attrs >
-        gotLine(composition, O', S)
-    =>
-        < composition : Composition | action : downTerm( 
-                     getTerm( 
-                      metaParse(upModule('SERVER-COMMANDS, false), tokenize(S), 'Command)), 
-                     idle), Attrs >
-        makeMsg(downTerm( 
-                     getTerm( 
-                      metaParse(upModule('SERVER-COMMANDS, false), tokenize(S), 'Command)), 
-                     idle))
-    .
+    eq printAst('service[T, T'], N) = tabs(N) + "service " + printAst(T, 0) + " {\n" + printAst(T', s(N)) + "\n" + tabs(N) + "}" .
+    eq printAst('server[T], N) = printAst(T, N) .
+    eq printAst('code[T], N) = tabs(N) + "code {" + "..." ---(printAst(T, s(N)) + "\n" + tabs(N)) + "}" .
+    eq printAst('routes[T], N) = tabs(N) + "routes {" + "..." ---(printAst(T, s(N)) + "\n" + tabs(N)) + "}" .
+    eq printAst('process[T, T', T''], N) = tabs(N) + "process for " + printInnerConnection(T, s(N)) + " : " + "[ waiting connection " + printAst(T'') + " ]" .
+    eq printAst('process[T, T'], N) = tabs(N) + "process for " + printInnerConnection(T, s(N)) + " : " + "[ " + printProcessStatus(T', s(N)) + " ]" .
+    
+    op printInnerConnection : Term Nat ~> String .
+    eq printInnerConnection('connection[T, T1, T2, 'httpRequest[T3, T4]], N) = "CONN : " + printAst(T) + " | " + printAst(T3) + " ~ " + printAst(T4) .
+    eq printInnerConnection('dummyConnection.SemConnection, N) = "init" .
 
-    rl < composition : Composition | inStr : "", action : load(FILE), Attrs >
-    =>
-        < composition : Composition | inStr : getFileContents(FILE), action : loading(FILE), Attrs >
-    .
+    op printProcessStatus : Term Nat ~> String .
+    eq printProcessStatus(T, N) = printProcessStatus(downTerm(T, { none }), N) [owise] .
 
-    crl < composition : Composition | inStr : S, state : CONF, action : loading(FILE), Attrs >
-    =>
-        (if toConfig(S) :: Configuration then
-            write(stdout, composition, "loaded specification from " + FILE + "\n")
-            < composition : Composition | inStr : "", state : (CONF toConfig(S)), action : idle, Attrs >
-        else
-            write(stdout, composition, "bad syntax in " + FILE + "\n")
-            < composition : Composition | inStr : "", state : CONF, action : idle, Attrs >
-        fi)
-    if S :: String .
+    var CONF : Configuration .
+    var O : Oid .
+    var ATTRS : AttributeSet .
+    var Io : IO .
+    vars S S' PATH : String .
+    var REQ RESP IOVAL : IOValue .
+    var RES : EvalResult .
+    var ~RES : [EvalResult] .
 
-    rl < composition : Composition | action : print, state : CONF, Attrs >
-    =>
-        < composition : Composition | action : idle, state : CONF, Attrs >
-        write(stdout, composition, printTokens(metaPrettyPrint(upModule('SERVER-SEMANTICS, true), none, 
-                upTerm(CONF), 
-                mixfix)) + "\n")
-    .
-
-    var ENV : Configuration .
-
-    rl < composition : Composition | action : execute, state : (CONF), Attrs >
-    =>
-        < composition : Composition | action : waitingExecution, state : (cli CONF), Attrs >
-    .
-
-    rl < composition : Composition | action : waitingExecution, state : (cliStop CONF), Attrs >
-    =>
-        < composition : Composition | action : idle, state : (CONF), Attrs >
-        getLine(stdin, composition, "> ")
-    .
+    op printProcessStatus : Environment Nat ~> String .
+    eq printProcessStatus({ none }, N) = "empty" .
+    eq printProcessStatus({ outcomingRequest(S, PATH, REQ) CONF }, N) = "sent request to [" + S + " @ " + PATH  + "] : \n" + tabs(N) + printAst(upTerm(REQ)) + " ." .
+    eq printProcessStatus({ incomingResponse(RESP) CONF }, N) = "got response  : " + printAst(upTerm(RESP)) + " ." .
+    eq printProcessStatus({ setPersistent(S, IOVAL) CONF }, N) = "setting persistent " + S + " = " + printAst(upTerm(IOVAL)) + " ." .
+    eq printProcessStatus({ setPersistentOk CONF }, N) = "persistent changed " + " ." .
+    eq printProcessStatus({ < O : Executor | ATTRS, waiting : getPersistentValue > CONF }, N) = "waiting for access to persistent value" .
+    eq printProcessStatus({ < O : Executor | ATTRS, currentResult : RES, waiting : none > CONF }, N) = "ended execution" .
+    eq printProcessStatus({ < O : Executor | ATTRS, currentResult : dispatched(~RES, IOVAL, Io), waiting : none > CONF }, N) = "language dispathed " + printAst(upTerm(IOVAL)) + " to channel " + printAst(upTerm(Io)) .
+    eq printProcessStatus({ CONF }, N) = printAst(upTerm(CONF), N) [owise] .
 endm
 
+mod COMPOSITION-TO-LANGUAGE is
+    protecting SERVER-SEMANTICS .
+    protecting CONVERSION .
 
-match connection(ID:Nat, S:String, S':String, httpRequest(PATH:String, V:IOValue))
-        service(S':String, server(SERV:SemComponentList, code(CODE:StmtAST), routes(route(PATH:String, CONTR:String), ROUTER:SemRouter)))
-<=? 
-    service("a0", server(code(function("main", params(empty), assign(id("a"), $add(int(1), int(5))) ; call("respond", args(str(
-    "123"))))),routes(route("/main", "main")))) connection(0, "$CLI", "a0", httpRequest("/main", strVal("hello")))
-.
---- erew toConfig(getFileContents("test.spec")) .
+    op toState : Configuration ~> State .
+    op toState : Configuration State ~> State .
 
-erew init .
+    op assertion : -> IO .
 
---- mod TEST is
----     protecting LANG-EXECUTION .
+    op serverToIOVal : SemComponentList -> IOValue .
+    op connectionToIOVal : SemConnection -> IOValue .
 
---- endm
+    var O : Object .
+    var St : State .
+    var CONF : Configuration .
+    vars S S' PATH STR : String .
+    vars ID ID1 ID2 ID3 : Nat .
+    var REQ : SemRequest .
+    var SERV : SemComponentList .
+    var ENV : Environment .
+    var CODE : StmtAST .
+    vars VAL RESP : IOValue .
+    var CONN : SemConnection .
 
---- rew <> < composition : Composition | action : waitingExecution,
---- state : (connectionManager(1) 
----     cli({
----         <> evaluating(assign(id("a"), call("request", args(str("a0"),str("/main"),str("hello"))))) 
----         < executor : Executor |
----             currentResult : evalAssign(id("a"), functionCallResult(params(id("svc"),id("path"),id("payload")), [func("print",
----                 params(id("value")),$dispatch(id("value"), cliIO)) ; func("quit",params(empty),$dispatch(int(0), cliQuit)) ; func(
----                 "request",params(id("svc"),id("path"),id("payload")),$dispatch(list(id("svc"),id("path"),id("payload")),
----                 connectionOut) ; $lock(id("res"), connectionOut) ; return(id("res"))) | empty | stack(0, empty)], evalStmt(return(
----                 id("res")), getState({void,locked([func("print",params(id("value")),$dispatch(id("value"), cliIO)) ; func("quit",
----                 params(empty),$dispatch(int(0), cliQuit)) ; func("request",params(id("svc"),id("path"),id("payload")),$dispatch(
----                 list(id("svc"),id("path"),id("payload")), connectionOut) ; $lock(id("res"), connectionOut) ; return(id("res"))) |
----                 "path" := 1 ; "payload" := 2 ; "res" := 6 ; "svc" := 0 | stack(7, 0 |-> strVal("a0") ; 1 |-> strVal("/main") ; 2 |->
----                 strVal("hello") ; 3 |-> strVal("a0") ; 4 |-> strVal("/main") ; 5 |-> strVal("hello") ; 6 |-> void)], 6,
----                 connectionOut)})))),
----             initialState : ([func("print",params(id("value")),$dispatch(id("value"), cliIO)) ; func("quit",
----                 params(empty),$dispatch(int(0), cliQuit)) ; func("request",params(id("svc"),id("path"),id("payload")),$dispatch(
----                 list(id("svc"),id("path"),id("payload")), connectionOut) ; $lock(id("res"), connectionOut) ; return(id("res"))) |
----                 empty | stack(0, empty)]),
----             waiting : connectionOut > 
----         < cliReader : CliReader | buf : "",ready : false >
----     }) 
----     service("a0", server(
----         code(function("main", params(empty), assign(id("a"), $add(int(1), int(5))) ; call("respond", args(str("123"))))),
----         routes(route("/main", "main"))
----     )) 
----     connection(0, "$CLI", "a0", httpRequest("/main", strVal("hello")))
---- ),
---- inStr : "" > .
+
+    eq toState(CONF) = toState(CONF, [ 
+        func("assert", params(id("value")), $dispatch(id("value"), assertion)) 
+        | "services" := 0 ; "connections" := 1
+        | stack(2, 0 |-> dictVal(empty) ; 1 |-> listVal(emptyList))
+    ]) .
+
+    --- eq toState(O CONF, St) = toState(CONF, St) [owise] .
+    eq toState(<> CONF, St) = toState(CONF, St) .
+    eq toState(initManager(ID) CONF, St) = toState(CONF, St) .
+    eq toState(init(CODE) CONF, St) = toState(CONF, St) .
+    eq toState(none, St) = St .
+    eq toState(connectionManager(ID) CONF, St) = toState(CONF, assignVar("totalConnections", intVal(ID), St)) .
+    eq toState(service(initId(ID), server(SERV)) CONF, St) = toState(CONF, St) .
+    eq toState(service(S, server(SERV)) CONF, St) = toState(
+        CONF, 
+        assignValue(
+            getRef(getValue(evalRefExpr(
+                member(id("services"), S), 
+                getState(toVal(serverToIOVal(SERV), St))
+            ))), 
+            getValue(toVal(serverToIOVal(SERV), St)), 
+            getState(evalRefExpr(
+                member(id("services"), S), 
+                getState(toVal(serverToIOVal(SERV), St))
+            ))
+        ) 
+    ) .
+    eq toState(CONN CONF, St) = toState(
+        CONF, 
+        assignValue(
+            getRef(getValue(evalRefExpr(
+                id("connections"),
+                getState(toVal(connectionToIOVal(CONN), St))
+            ))), 
+            listVal(getList(getStackValue(getRef(getValue(evalRefExpr(
+                id("connections"),
+                getState(toVal(connectionToIOVal(CONN), St))
+            ))), getState(evalRefExpr(
+                id("connections"),
+                getState(toVal(connectionToIOVal(CONN), St))
+            )))), lastIndex(getStack(getState(toVal(connectionToIOVal(CONN), St))))), 
+            pushStack(
+                getValue(toVal(connectionToIOVal(CONN), St)),
+                getState(toVal(connectionToIOVal(CONN), St))
+            )
+        ) 
+    ) .
+
+    var SERVCOMP : SemComponent .
+
+    eq serverToIOVal(SERVCOMP, SERV) = serverToIOVal(SERV) [owise] .
+    eq serverToIOVal($empty)  = map("persistents" |-> map(empty)) .
+    eq serverToIOVal(persistent(STR, VAL), SERV) = map(
+        insert(
+            "persistents", 
+            map(
+                insert(
+                    STR, 
+                    VAL, 
+                    getMap(getMap(serverToIOVal(SERV))["persistents"])
+                )
+            ), 
+            getMap(serverToIOVal(SERV))
+        )
+    ) .
+
+    eq connectionToIOVal(connection(ID, S, S', httpRequest(PATH, VAL))) = map((
+        "id" |-> intVal(ID) ,
+        "from" |-> strVal(S) ,
+        "to" |-> strVal(S') ,
+        "path" |-> strVal(PATH) ,
+        "payload" |-> VAL ,
+        "hasResponse" |-> boolVal(false)
+    )) .
+    eq connectionToIOVal(connection(ID, S, S', httpRequest(PATH, VAL), response(RESP))) = map((
+        "id" |-> intVal(ID) ,
+        "from" |-> strVal(S) ,
+        "to" |-> strVal(S') ,
+        "path" |-> strVal(PATH) ,
+        "payload" |-> VAL ,
+        "hasResponse" |-> boolVal(true),
+        "response" |-> RESP
+    )) .
+    eq connectionToIOVal(connection(ID, initId(ID1), S', httpRequest(PATH, VAL))) = map((
+        "id" |-> intVal(ID) ,
+        "from" |-> strVal("init-" + string(ID1, 10)) ,
+        "to" |-> strVal(S') ,
+        "path" |-> strVal(PATH) ,
+        "payload" |-> VAL ,
+        "hasResponse" |-> boolVal(false)
+    )) .
+    eq connectionToIOVal(connection(ID, initId(ID1), S', httpRequest(PATH, VAL), response(RESP))) = map((
+        "id" |-> intVal(ID) ,
+        "from" |-> strVal("init-" + string(ID1, 10)) ,
+        "to" |-> strVal(S') ,
+        "path" |-> strVal(PATH) ,
+        "payload" |-> VAL ,
+        "hasResponse" |-> boolVal(true),
+        "response" |-> RESP
+    )) .
+endm
+
+mod COMPOSITION-PREDS is
+    including (SATISFACTION + LTL + MODEL-CHECKER) * (sort State to CompositionState) .
+    protecting SERVER-SEMANTICS .
+    protecting COMPOSITION-TO-LANGUAGE .
+
+    subsort Configuration < CompositionState .
+
+    op unhandledRequest : -> Prop [ctor] .
+    
+    op assertions : StmtAST -> Prop [ctor] .
+
+    op checkAssertions : EvalResult ~> Bool .
+
+    
+
+    var CONF : Configuration .
+    vars S S' PATH : String .
+    var ID : Nat .
+    var REQ : SemRequest .
+    var SERV : SemComponentList .
+    var ENV : Environment .
+    var CODE : StmtAST .
+
+    eq CONF connection(ID, S, PATH, REQ) |= unhandledRequest = true .
+    eq CONF service(S, server(SERV, process(connection(ID, S', PATH, REQ), ENV))) |= unhandledRequest = true .
+    eq CONF |= unhandledRequest = false [owise] .
+
+    eq CONF |= assertions(CODE) = checkAssertions(evalStmt(CODE, toState(CONF))) .
+
+    var St : State .
+    var ~RES : [EvalResult] .
+    var B : Bool .
+
+    eq checkAssertions({ void, St }) = true .
+    eq checkAssertions(dispatched(~RES, boolVal(B), assertion)) = B and checkAssertions(~RES) .
+endm
+
+mod COMPOSITION is
+    protecting META-LEVEL .
+    protecting QID-LIST .
+    protecting LEXICAL .
+    protecting INT .
+    protecting CONFIGURATION .
+    protecting FILE-READER .
+    protecting STRING .
+    protecting SERVER .
+    protecting SERVER-SEMANTICS .
+    protecting PRINTER .
+    protecting COMPOSITION-PREDS .
+
+    sort Term? .
+    subsort Term < Term? .
+    op noTerm : -> Term? .
+
+    op Composition : -> Cid [ctor] .
+    op composition : -> Oid [ctor] .
+
+    op metaTerm :_ : Term? -> Attribute [ctor] .
+
+    op writeMetaTerm : Oid Oid Term -> Msg [ctor msg] .
+    op wroteMetaTerm : Oid Oid -> Msg [ctor msg] .
+
+    op getMetaTerm : Oid Oid -> Msg [ctor msg] .
+    op gotMetaTerm : Oid Oid Term? -> Msg [ctor msg] .
+    
+
+    op initComposition : ~> Configuration .
+    eq initComposition = < composition : Composition | metaTerm : noTerm > .
+
+    vars O O' COMP PARSER : Oid .
+    vars T T' : Term .
+    var T? : Term? .
+    vars ATTRS ATTRS' : AttributeSet .
+
+    rl < COMP : Composition | metaTerm : T? > writeMetaTerm(COMP, O, T)
+    => < COMP : Composition | metaTerm : T > wroteMetaTerm(O, COMP) .
+    
+    rl < COMP : Composition | metaTerm : T? > getMetaTerm(COMP, O)
+    => < COMP : Composition | metaTerm : T? > gotMetaTerm(O, COMP, T?) .
+
+
+    op stringParser : -> Oid [ctor] .
+    op StringParser : -> Cid [ctor] .
+
+    op sender :_ : Oid -> Attribute [ctor] .
+
+    op parseTermFromString : Oid Oid String -> Msg [ctor msg] .
+    op parsedTermFromString : Oid Oid -> Msg [ctor msg] .
+    op failedParse : Oid Oid ConfigurationOrError -> Msg [ctor msg] .
+
+    var TEXT : String .
+
+    sort ConfigurationOrError .
+    subsort Configuration < ConfigurationOrError .
+    op parseError : String -> ConfigurationOrError .
+
+    op parseComposition : String -> ResultPair? .
+    eq parseComposition(TEXT) = metaParse(upModule('SERVER-SYNTAX, false), tokenize(TEXT), 'ServiceList) .
+    
+    op toConfig : String -> ConfigurationOrError .
+    ceq toConfig(TEXT) = processConfig(getTerm(parseComposition(TEXT))) 
+    if parseComposition(TEXT) :: ResultPair .
+
+    ceq toConfig(TEXT) = generateError(TEXT, parseComposition(TEXT))
+    if not parseComposition(TEXT) :: ResultPair .
+
+    vars I I' : Int .
+    vars N N' : Nat .
+    var QID : Qid .
+    var QLIST : QidList .
+
+    op generateError : String ResultPair? -> ConfigurationOrError .
+    eq generateError(TEXT, noParse(I)) = parseError("Failed to parse: " + printTokens(subQidList(tokenize(TEXT), _-_(I, 19), 20)) + " <-- HERE") .
+
+    op subQidList : QidList Int Nat -> QidList .
+    ceq subQidList(QLIST, I, N') = subQidList(QLIST, 0, N' + I) if I < 0 .
+    ceq subQidList(QID QLIST, I, N) = subQidList(QLIST, _-_(I, 1), N) if I > 0 .
+    eq subQidList(QID QLIST, 0, s(N)) = QID subQidList(QLIST, 0, N) .
+    eq subQidList(QLIST, I, 0) = nil .
+    eq subQidList(nil, I, N) = nil .
+
+    op initConfig : -> Configuration .
+    eq initConfig = connectionManager(0) initManager(0) <> .
+
+    crl < COMP : Composition | ATTRS > parseTermFromString(COMP, O, TEXT)
+    => < COMP : Composition | ATTRS > 
+        writeMetaTerm(COMP, stringParser, upTerm(initConfig toConfig(TEXT))) 
+        < stringParser : StringParser | sender : O > 
+    if toConfig(TEXT) :: Configuration .
+
+    crl < COMP : Composition | ATTRS > parseTermFromString(COMP, O, TEXT)
+    => < COMP : Composition | ATTRS > 
+        failedParse(O, COMP, toConfig(TEXT))
+    if not toConfig(TEXT) :: Configuration .
+
+    rl wroteMetaTerm(PARSER, COMP) 
+        < PARSER : StringParser | sender : O > 
+    => parsedTermFromString(O, composition) .
+
+    var F : String .
+
+    op fileParser : -> Oid [ctor] .
+    op FileParser : -> Cid [ctor] .
+
+    op fileName :_ : String -> Attribute [ctor] .
+    op receiver :_ : Oid -> Attribute [ctor] .
+
+    op parseTermFromFile : Oid Oid String -> Msg [ctor msg] .
+    op parsedTermFromFile : Oid Oid -> Msg [ctor msg] .
+
+    rl < COMP : Composition | ATTRS > parseTermFromFile(COMP, O, F)
+    => < COMP : Composition | ATTRS >
+        < fileParser : FileParser | sender : O, fileName : F, receiver : COMP > 
+        scanFile(F) .
+
+    rl scannedFile(F, TEXT) 
+        < PARSER : FileParser | sender : O, fileName : F, receiver : COMP > 
+    => parseTermFromString(COMP, O, TEXT) .
+
+
+    op simulate : Oid Oid -> Msg [ctor msg] .
+    op simulated : Oid Oid Term -> Msg [ctor msg] .
+
+    rl < COMP : Composition | metaTerm : T, ATTRS > simulate(COMP, O)
+    => < COMP : Composition | metaTerm : T, ATTRS > simulated(O, COMP, getTerm(metaRewrite(upModule('COMPOSITION, true), T, unbounded))) .
+
+    
+    op simulateAndPrint : Oid Oid -> Msg [ctor msg] .
+    op waitingForPrint : Oid Oid -> Msg [ctor msg] .
+    op simulatedAndPrinted : Oid Oid -> Msg [ctor msg] .
+
+    op debug : Universal -> Msg [ctor poly (1)] .
+
+    rl simulateAndPrint(COMP, O)
+    => simulate(COMP, O) waitingForPrint(O, COMP) .
+
+    rl simulated(O, COMP, T) waitingForPrint(O, COMP)
+    => write(stdout, COMP, printAst(T)) waitingForPrint(O, COMP) .
+
+    rl wrote(COMP, O') waitingForPrint(O, COMP)
+    => simulatedAndPrinted(O, COMP) .
+
+    op check : Oid Oid Formula -> Msg [ctor msg] .
+    op checked : Oid Oid ModelCheckResult -> Msg [ctor msg] .
+
+    op printCheckResult : ModelCheckResult -> String .
+    op printCounterexample : TransitionList -> String .
+
+    var LTL : Formula .
+    var RES : ModelCheckResult .
+    vars CE CE' : TransitionList .
+    var RULE : RuleName .
+    var CONF : Configuration .
+    
+    eq printCheckResult(true) = "Valid\n" .
+    eq printCheckResult(counterexample(CE, CE')) = "Invalid: \nStarting at:\n" + printCounterexample(CE) + "\nWith loop:\n" + printCounterexample(CE') .
+
+    eq printCounterexample({CONF, RULE} CE) = printAst(upTerm(CONF)) + "\n ---> \n" + printCounterexample(CE) .
+    eq printCounterexample(nil) = "END\n" . 
+
+
+    rl < COMP : Composition | metaTerm : T, ATTRS > check(COMP, O, LTL)
+    => < COMP : Composition | metaTerm : T, ATTRS > checked(O, COMP, modelCheck(downTerm(T, none), LTL)) .
+
+    op checkAndPrint : Oid Oid Formula -> Msg [ctor msg] .
+    op checkedAndPrinted : Oid Oid -> Msg [ctor msg] .
+
+    rl checkAndPrint(COMP, O, LTL)
+    => check(COMP, O, LTL) waitingForPrint(O, COMP) .
+
+    rl checked(O, COMP, RES) waitingForPrint(O, COMP)
+    => write(stdout, COMP, printCheckResult(RES)) .
+endm
+
+select COMPOSITION .
+
+erew initComposition parseTermFromFile(composition, composition, "cache.spec") checkAndPrint(composition, composition, ~ <> assertions(parse("assert(services . cache . persistents . keys [ \"fav:user:0\" ] == 2) ;"))) .
+--- erew initComposition parseTermFromFile(composition, composition, "cache.spec") simulateAndPrint(composition, composition) .

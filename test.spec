@@ -1,11 +1,20 @@
 service a0 { 
-    code {!
+    persistent total = 1 ;
+    code {
         function main(request) {
-            a = 1 + 5 ;
-            respond("123") ;
+            b = {
+                type : "response",
+                in : request . out,
+                out : request . in
+            } ;
+            respond(b) ;
         }
-    !}
-    routes {
-        "/main" -> "main"
     }
+    routes {
+        "/main" -> main
+    }
+}
+
+init {
+    a = request("a0", "/main", { in : "out", out : "in" });
 }
