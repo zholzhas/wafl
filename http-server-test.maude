@@ -1,0 +1,6 @@
+load http-server.maude
+
+
+
+erew initComposition parseTermFromFile(composition, composition, "cache.spec") checkAndPrint(composition, composition, <> assertions(parse("assert(services . cache . persistents . keys [ \"fav:user:0\" ] == 2) ;"))) .
+--- erew initComposition parseTermFromFile(composition, composition, "cache.spec") simulateAndPrint(composition, composition) .

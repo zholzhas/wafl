@@ -412,7 +412,8 @@ mod SERVER-SEMANTICS is
     var CONF : Configuration .
     var CONN : SemConnection .
 
-    rl connection(ID, S, S', httpRequest(PATH, V))
+    rl [CONSUME-REQUEST] : 
+        connection(ID, S, S', httpRequest(PATH, V))
         service(S', server(SERV, code(CODE), routes(route(PATH, CONTR), ROUTER)))
     =>
         service(S', server(SERV, 
@@ -422,7 +423,8 @@ mod SERVER-SEMANTICS is
         ))
     .
 
-    rl service(S', server(SERV, 
+    rl [SEND-RESPONSE] : 
+        service(S', server(SERV, 
         process(
             connection(ID, S, S', httpRequest(PATH, V)), 
             { responseSent(RESP) CONF }
@@ -433,7 +435,8 @@ mod SERVER-SEMANTICS is
         connection(ID, S, S', httpRequest(PATH, V), response(RESP))
     .
 
-    rl connectionManager(ID)
+    rl [SEND-REQUEST] : 
+        connectionManager(ID)
         service(S', server(SERV, 
             process(
                 CONN, 
@@ -452,7 +455,8 @@ mod SERVER-SEMANTICS is
         ))
     .
 
-    rl connection(ID, S', S'', httpRequest(PATH', REQ), response(RESP))
+    rl [CONSUME-RESPONSE] : 
+        connection(ID, S', S'', httpRequest(PATH', REQ), response(RESP))
         service(S', server(SERV, 
             process(
                 CONN, 
@@ -475,7 +479,8 @@ mod SERVER-SEMANTICS is
         service(initId(ID), server(process(dummyConnection, initiate(CODE, defaultFunctions)))) 
     .
 
-    rl service(S, server(SERV,
+    rl [GET-PERSISTENT] : 
+        service(S, server(SERV,
             persistent(NAME, V), 
             process(
                 CONN, 
@@ -492,7 +497,8 @@ mod SERVER-SEMANTICS is
         ))
     .
 
-    rl service(S, server(SERV,
+    rl [SET-PERSISTENT] :
+        service(S, server(SERV,
             persistent(NAME, V), 
             process(
                 CONN, 
@@ -883,6 +889,7 @@ mod COMPOSITION is
     op checked : Oid Oid ModelCheckResult -> Msg [ctor msg] .
 
     op printCheckResult : ModelCheckResult -> String .
+    op printCheckResultShort : ModelCheckResult -> String .
     op printCounterexample : TransitionList -> String .
 
     var LTL : Formula .
@@ -893,8 +900,10 @@ mod COMPOSITION is
     
     eq printCheckResult(true) = "Valid\n" .
     eq printCheckResult(counterexample(CE, CE')) = "Invalid: \nStarting at:\n" + printCounterexample(CE) + "\nWith loop:\n" + printCounterexample(CE') .
+    eq printCheckResultShort(counterexample(CE, CE')) = "Invalid:\nWith loop:\n" + printCounterexample(CE') .
 
-    eq printCounterexample({CONF, RULE} CE) = printAst(upTerm(CONF)) + "\n ---> \n" + printCounterexample(CE) .
+    ceq printCounterexample({CONF, RULE} CE) = printCounterexample(CE) if RULE == unlabeled .
+    ceq printCounterexample({CONF, RULE} CE) = printAst(upTerm(CONF)) + "\n ---> \n" + printCounterexample(CE) if RULE =/= unlabeled .
     eq printCounterexample(nil) = "END\n" . 
 
 
@@ -912,6 +921,3 @@ mod COMPOSITION is
 endm
 
 select COMPOSITION .
-
-erew initComposition parseTermFromFile(composition, composition, "cache.spec") checkAndPrint(composition, composition, ~ <> assertions(parse("assert(services . cache . persistents . keys [ \"fav:user:0\" ] == 2) ;"))) .
---- erew initComposition parseTermFromFile(composition, composition, "cache.spec") simulateAndPrint(composition, composition) .

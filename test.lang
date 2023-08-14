@@ -1,2 +1,1 @@
-a = { aa : "1" } ;
-write(keyExists(a, "aaa")) ;
+write(read());

@@ -632,12 +632,7 @@ fmod LANG-SEMANTICS is
     ceq evalExpr(call(STR, ARGS), [ func(STR, PARAMS, S) ; FUNCS | VARS | STACK ]) = 
         functionCallResult(PARAMS, [ func(STR, PARAMS, S) ; FUNCS | VARS | STACK ], evalStmt(
             S,
-            [ 
-                --- evaluate body of the function based on the current state and argument substitutions
-                func(STR, PARAMS, S) ; FUNCS 
-                | getVars(addArgs(ARGS, PARAMS, [ func(STR, PARAMS, S) ; FUNCS | VARS | STACK ]))
-                | getStack(addArgs(ARGS, PARAMS, [ func(STR, PARAMS, S) ; FUNCS | VARS | STACK ]))
-            ]
+            addArgs(ARGS, PARAMS, [ func(STR, PARAMS, S) ; FUNCS | VARS | STACK ])
         )) 
     if validState([ func(STR, PARAMS, S) ; FUNCS | VARS | STACK ]) .
 
@@ -749,7 +744,7 @@ fmod LANG-SEMANTICS is
 
     --- assigning variables for function call
     op assignVar : String ExprAST State -> State .
-    eq assignVar(STR, E, St) = assignVar(STR, getValue(evalExpr(E, St)), getState(evalExpr(E, St))) .
+    eq assignVar(STR, E, St) = getState(evalAssign(id(STR), evalExpr(E, St))) .
 
     op assignVar : String Value State -> State .
     eq assignVar(STR, V, [ FUNCS | STR := N ; VARS | STACK ]) = 
@@ -824,6 +819,7 @@ fmod LANG-SEMANTICS is
 
     eq unlockState(locked(St, N, Io), IOVAL) = assignValue(N, getValue(toVal(IOVAL, St)), getState(toVal(IOVAL, St))) .
     eq unlockState(getState(~RES), IOVAL) = getState(unlock(~RES, IOVAL)) .
+    eq unlockState(addArgs(args(ARGLIST), params(PARAMLIST), ~St), IOVAL) = addArgs(args(ARGLIST), params(PARAMLIST), unlockState(~St,IOVAL)) .
 
 
 
@@ -1066,8 +1062,3 @@ mod LANG-IO is
     op executeAST : AST -> EvalResult .
     eq executeAST(A) = evalStmt(A, [funcs | empty | stack(0, empty) ]) .
 endm
-
---- erew executeFile("test.lang", list(nil)) .
-erew executeFile("test.lang") .
---- erew executeFile("test2.lang", intVal(6)) .
---- erew parseFile("test.lang") .
