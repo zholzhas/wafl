@@ -1,45 +1,71 @@
+load http-server.maude
+load metaInterpreter.maude
 
----(mod CLI is
-    protecting LANG-EXECUTION .
-    protecting (LANG + LANG-IO) * (op process : Term ~> AST to processLang) .
-    protecting META-LEVEL .
-    protecting LEXICAL .
-    protecting SERVER-AST .
+fmod CLI-COMMANDS is
+    including LANG-SYNTAX .
+
+    sort Command .
+
+    op model from_ : Token -> Command .
+    op assertions from_ : Token -> Command .
+
+    op show state : -> Command .
+    op trace to_ : Token -> Command .
+
+    op always_; : Expr -> Command .
+
+    op reset : -> Command .
+    op reset code : -> Command .
+    op reset model : -> Command .
+
+    op quit : -> Command .
+endfm
+
+mod CLI is
+    protecting COMPOSITION .
+
+    sort CliState .
+
+    ops idle reading writing checking parsing quitting : -> CliState .
+    ops loadingComposition waitingParser : String -> CliState .
+    ops loadingAssertions waitingAssertionParser : String -> CliState .
+    op  checkingAlways : ExprAST -> CliState .
+    op  showingState : -> CliState .
+    ops resetting resettingCode resettingModel : -> CliState .
+    ops openningTraceFile printingTrace : String -> CliState .
+    ops writingToTraceFile closingTraceFile : String Oid -> CliState .
+    op  printingToFile : String -> CliState .
 
     op cliReader : -> Oid [ctor] .
     op CliReader : -> Cid [ctor] .
 
     op buf :_ : String -> Attribute [ctor] .
-    op ready :_ : Bool -> Attribute [ctor] .
+    op state :_ : CliState -> Attribute [ctor] .
+    op composition :_ : Term? -> Attribute [ctor] .
+    op assertions :_ : StmtAST -> Attribute [ctor] .
+    op counterexampleState :_ : Term? -> Attribute [ctor] .
+    op counterexamplePath :_ : Trace? -> Attribute [ctor] .
 
-    op cliIO : -> IO [ctor] .
-    op cliQuit : -> IO [ctor] .
+    op parseCommand : String -> ResultPair? .
+    op parseLang : String -> ResultPair? .
 
-    op print : IOValue -> Msg [ctor] .
-    op quit : -> Msg [ctor] .
 
-    op quitted : EvalResult ~> EvalResult .
+    op mergeConfigs : Term? Term -> Term .
 
-    op cli : ~> Object .
-    op cli : Environment -> Object .
-    eq cli = cli({< executor : Executor | 
-            currentResult : {void, [cliFunctions | empty | stack(0, empty)]}, 
-            initialState : ([ cliFunctions | empty | stack(0, empty) ]),
-            waiting : none
-        > <>}) .
-    
-    op cliStop : -> Msg [ctor] .
-    rl cli({<> quit CONF}) => cliStop .
+    op commandToState : Term -> CliState .
 
-    op cliFunctions : -> FuncStorage .
-    eq cliFunctions =
-        defaultFunctions ;
-        func("print", params(id("value")), $dispatch(id("value"), cliIO)) ;
-        func("quit", params(empty), $dispatch(int(0), cliQuit))
-    .
+    op searchCounterexample : Term StmtAST -> ResultTriple? .
+    op getCounterexamplePath : Term StmtAST -> Trace? .
+
+    op getErrorPosition : ResultPair? -> Nat .
+
+    op tokenToString : Qid -> String .
+
+    op printTrace : Trace? -> String .
+    op printTrace : Trace? Term -> String .
 
     var CONF : Configuration .
-    vars S INPUT : String .
+    vars S INPUT TEXT : String .
     var IOVAL : IOValue .
     var ~RES : [EvalResult] .
     var RES : EvalResult .
@@ -47,108 +73,314 @@
     var FUNCS : FuncStorage .
     var VARS : VarStorage .
     var STACK : Stack .
-    var CODE : StmtAST .
+    vars CODE CODE' : StmtAST .
+    vars EXPR : ExprAST .
     var ATTRS : AttributeSet .
+    vars COMP COMP' T T' : Term .
+    var COMP? : Term? .
+    var N : Nat .
+    vars O O' : Oid .
+    var TRACE? : Trace? .
+    var TRACE : Trace .
+    var COUNTER : Term? .
+    var TYPE : Type .
+    var R : Rule .
 
-    rl < executor : Executor | 
-            currentResult : dispatched(~RES, IOVAL, cliIO), 
-            ATTRS
-        >
-    =>
-        < executor : Executor | 
-            currentResult : ~RES,
-            ATTRS
-        >
-        write(stdout, executor, printTokens(metaPrettyPrint(upModule('LANG-SEMANTICS, true), none, 
-                upTerm(IOVAL), 
-                mixfix)) + "\n")
-    .
+    eq printTrace(failure) = "Model is valid. No trace to show.\n" .
+    eq printTrace(nil) = "END OF TRACE\n" .
+    eq printTrace({COUNTER, TYPE, R} TRACE) = printAst(COUNTER) + "\n\n\n           vvvvvvvvvvvvv" + "\n           vvvvvvvvvvvvv" + "\n           vvvvvvvvvvvvv\n\n\n" + printTrace(TRACE) .
+    eq printTrace(TRACE?, T) = printTrace(TRACE?) + "\n\n\n" + printAst(T) .
 
-    rl < executor : Executor | 
-            currentResult : dispatched(~RES, IOVAL, cliQuit), 
-            ATTRS
-        >
-    =>
-        < executor : Executor | 
-            currentResult : quitted(~RES),
-            ATTRS
-        >
-        quit
-    .
+    ceq tokenToString('token[T]) = string(downTerm(T, '$err)) if not parsePredefined(T, 'STRING, 'String) :: ResultPair .
+    ceq tokenToString('token[T]) = downTerm(getTerm(parsePredefined(T, 'STRING, 'String)), "") if parsePredefined(T, 'STRING, 'String) :: ResultPair .
 
-    var O' : Oid .
+    eq getErrorPosition(noParse(N)) = N .
 
-    rl < cliReader : CliReader | ready : false, ATTRS >
+    eq commandToState('model`from_[T]) = loadingComposition(tokenToString(T)) .
+    eq commandToState('assertions`from_[T]) = loadingAssertions(tokenToString(T)) .
+    eq commandToState('trace`to_[T]) = printingTrace(tokenToString(T)) .
+    eq commandToState('always_;[T]) = checkingAlways(processLang(T)) .
+    eq commandToState('show`state.Command) = showingState .
+    eq commandToState('reset.Command) = resetting .
+    eq commandToState('reset`code.Command) = resettingCode .
+    eq commandToState('reset`model.Command) = resettingModel .
+    eq commandToState('quit.Command) = quitting .
+
+    eq mergeConfigs(COMP', COMP) = upTerm(downTerm(COMP', (none).Configuration) downTerm(COMP, (none).Configuration)) .
+    eq mergeConfigs(noTerm, COMP) = COMP .
+
+    eq parseCommand(S) = metaParse(upModule('CLI-COMMANDS, false), tokenize(S), 'Command) .
+    eq parseLang(S) = metaParse(upModule('LANG-SYNTAX, false), tokenize(S), 'TopLevel) .
+
+    eq searchCounterexample(COMP, CODE) = metaSearch(upModule('ASSERTION-CHECK, true), COMP, 'C:Configuration, ('satisfies['C:Configuration, upTerm(CODE)] = 'false.Bool), '*, unbounded, 0) .
+    eq getCounterexamplePath(COMP, CODE) = metaSearchPath(upModule('ASSERTION-CHECK, true), COMP, 'C:Configuration, ('satisfies['C:Configuration, upTerm(CODE)] = 'false.Bool), '*, unbounded, 0) .
+
+
+    rl < cliReader : CliReader | state : writing, ATTRS >
         wrote(cliReader, stdout)
     =>
-        < cliReader : CliReader | ready : true, ATTRS >
+        < cliReader : CliReader | state : idle, ATTRS >
     .
 
-    rl < cliReader : CliReader | buf : S, ready : true, ATTRS >
+    rl < cliReader : CliReader | buf : S, state : idle, ATTRS >
     =>
-        < cliReader : CliReader | buf : S, ready : false, ATTRS >
-        getLine(stdin, cliReader, "# ")
+        < cliReader : CliReader | buf : S, state : reading, ATTRS >
+        getLine(stdin, cliReader, "> ")
     .
 
-    rl < cliReader : CliReader | buf : S, ready : false, ATTRS >
+    rl < cliReader : CliReader | buf : S, state : reading, ATTRS >
         gotLine(cliReader, O', INPUT)
     =>
-        if toEval(tokenize(S + INPUT)) then
-            < cliReader : CliReader | buf : "", ready : false, ATTRS >
-            if (parse(S + INPUT) :: StmtAST) then
-                evaluate(parse(S + INPUT))
+        if (parseCommand(S + INPUT) :: ResultPair) then
+            < cliReader : CliReader | buf : "", state : commandToState(getTerm(parseCommand(S + INPUT))), ATTRS >
+        else
+            if getErrorPosition(parseCommand(S + INPUT)) == size(tokenize(S + INPUT)) then
+                < cliReader : CliReader | buf : (S + INPUT), state : idle, ATTRS >
             else
-                write(stdout, cliReader, "No parse.\n")
+                < cliReader : CliReader | buf : "", state : writing, ATTRS >
+                write(stdout, cliReader, formatErrorString(S + INPUT, parseCommand(S + INPUT)) + "\n")
             fi
-        else 
-            < cliReader : CliReader | buf : (S + INPUT), ready : true, ATTRS >
         fi
     .
 
-    var ATTRS' : AttributeSet .
 
-    rl evaluating(CODE)
-        < cliReader : CliReader | ready : false, ATTRS' >
+    rl < cliReader : CliReader | state : loadingComposition(S), ATTRS >
+    => < cliReader : CliReader | state : waitingParser(S), ATTRS >
+        scanFile(S)
+    .
+
+    rl < cliReader : CliReader | state : waitingParser(S), ATTRS >
+        readerError(S, TEXT)
     =>
-        < cliReader : CliReader | ready : true, ATTRS' >
-    . 
+        < cliReader : CliReader | state : writing, ATTRS >
+        write(stdout, cliReader, "Error: " + TEXT + "\n")
+    .
 
+    rl < cliReader : CliReader | state : waitingParser(S), composition : COMP?, ATTRS >
+        scannedFile(S, TEXT)
+    =>
+        if parseComposition(TEXT) :: ResultPair then
+            if processConfig(getTerm(parseComposition(TEXT))) :: Configuration then
+                < cliReader : CliReader | state : writing, composition : mergeConfigs(COMP?, upTerm(processConfig(getTerm(parseComposition(TEXT))))), ATTRS >
+                write(stdout, cliReader, "Composition is loaded.\n")
+            else
+                < cliReader : CliReader | state : writing, composition : COMP?, ATTRS >
+                write(stdout, cliReader, getCompositionError(processConfig(getTerm(parseComposition(TEXT)))) + "\n")
+                debug(getCompositionError(processConfig(getTerm(parseComposition(TEXT)))))
+            fi
+        else
+            < cliReader : CliReader | state : writing, composition : COMP?, ATTRS >
+            write(stdout, cliReader, formatErrorString(TEXT, parseComposition(TEXT)) + "\n")
+        fi
+    .
+
+    rl < cliReader : CliReader | state : loadingAssertions(S), ATTRS >
+    => < cliReader : CliReader | state : waitingAssertionParser(S), ATTRS >
+        scanFile(S)
+    .
+
+    rl < cliReader : CliReader | state : waitingAssertionParser(S), assertions : CODE, ATTRS >
+        scannedFile(S, TEXT)
+    =>
+        if parseLang(TEXT) :: ResultPair then
+            < cliReader : CliReader | state : writing, assertions : (CODE ; processLang(getTerm(parseLang(TEXT)))), ATTRS >
+            write(stdout, cliReader, "Assertion code is loaded.\n")
+        else
+            < cliReader : CliReader | state : writing, assertions : CODE, ATTRS >
+            write(stdout, cliReader, formatErrorString(TEXT, parseLang(TEXT)) + "\n")
+        fi
+    .
+
+    rl < cliReader : CliReader | state : waitingAssertionParser(S), assertions : CODE, ATTRS >
+        readerError(S, TEXT)
+    =>
+        < cliReader : CliReader | state : writing, assertions : CODE, ATTRS >
+        write(stdout, cliReader, "Error: " + TEXT + "\n")
+    .
+
+
+    rl < cliReader : CliReader | 
+        state : checkingAlways(EXPR), 
+        assertions : CODE, 
+        composition : COMP, 
+        counterexamplePath : TRACE?,
+        counterexampleState : COUNTER,
+    ATTRS >
+    => 
+        if searchCounterexample(COMP, CODE ; EXPR) :: ResultTriple then
+            < cliReader : CliReader | 
+                state : writing, 
+                assertions : CODE, 
+                composition : COMP, 
+                counterexamplePath : getCounterexamplePath(COMP, CODE ; EXPR),
+                counterexampleState : getTerm(searchCounterexample(COMP, CODE ; EXPR)),
+            ATTRS >
+            write(stdout, cliReader, "Invalid!\n")
+        else
+            < cliReader : CliReader | 
+                state : writing, 
+                assertions : CODE, 
+                composition : COMP, 
+                counterexamplePath : TRACE?,
+                counterexampleState : COUNTER,
+            ATTRS >
+            write(stdout, cliReader, "Valid!\n")
+        fi
+    .
+
+    rl < cliReader : CliReader | 
+        state : showingState,
+        counterexampleState : COUNTER,
+    ATTRS >
+    => 
+        if COUNTER =/= noTerm then
+            < cliReader : CliReader | 
+                state : writing, 
+                counterexampleState : COUNTER,
+            ATTRS >
+            write(stdout, cliReader, printAst(COUNTER) + "\n")
+        else
+            < cliReader : CliReader | 
+                state : writing,
+                counterexampleState : COUNTER,
+            ATTRS >
+            write(stdout, cliReader, "Property is valid (or no assertions were made). No state to show.\n")
+        fi
+    .
+
+    rl < cliReader : CliReader | 
+        state : resetting, 
+        assertions : CODE, 
+        composition : COMP,
+    ATTRS >
+    => < cliReader : CliReader | 
+            state : writing, 
+            assertions : pass, 
+            composition : upTerm(initConfig),
+        ATTRS >
+        write(stdout, cliReader, "Assertion code and composition model have been reset.\n")
+    .
+
+    rl < cliReader : CliReader | 
+        state : resettingCode, 
+        assertions : CODE,
+    ATTRS >
+    => < cliReader : CliReader | 
+            state : writing, 
+            assertions : pass,
+        ATTRS >
+        write(stdout, cliReader, "Assertion code has been reset.\n")
+    .
+
+    rl < cliReader : CliReader | 
+        state : resettingModel,
+        composition : COMP,
+    ATTRS >
+    => < cliReader : CliReader | 
+            state : writing,
+            composition : upTerm(initConfig),
+        ATTRS >
+        write(stdout, cliReader, "Composition model has been reset.\n")
+    .
+
+    rl < cliReader : CliReader | 
+        state : printingTrace(S),
+    ATTRS >
+    =>
+        < cliReader : CliReader | 
+            state : openningTraceFile(S),
+        ATTRS >
+        openFile(fileManager, cliReader, S, "w")
+    .
+
+    rl < cliReader : CliReader | 
+        state : openningTraceFile(S), 
+        counterexamplePath : TRACE?,
+        counterexampleState : COUNTER,
+    ATTRS >
+    openedFile(cliReader, fileManager, O)
+    =>
+        < cliReader : CliReader | 
+            state : writingToTraceFile(S, O), 
+            counterexamplePath : TRACE?,
+            counterexampleState : COUNTER,
+        ATTRS >
+        debug( printTrace(TRACE?))
+        write(O, cliReader, printTrace(TRACE?, COUNTER))
+    .
+
+
+    rl < cliReader : CliReader | 
+            state : writingToTraceFile(S, O),
+        ATTRS >
+        wrote(cliReader, O)
+    =>
+        < cliReader : CliReader | 
+            state : closingTraceFile(S, O),
+        ATTRS >
+        closeFile(O, cliReader)
+    .
+
+    rl < cliReader : CliReader | 
+            state : closingTraceFile(S, O),
+        ATTRS >
+        closedFile(cliReader, O)
+    =>
+        < cliReader : CliReader | 
+            state : writing,
+        ATTRS >
+        write(stdout, cliReader, "Trace has been printed.\n")
+    .
 
     var QIDList : QidList .
     var QID : Qid .
 
     op toEval : QidList -> Bool .
-    eq toEval(QIDList ';) = unclosed(QIDList) <= 0 .
-    ceq toEval(QIDList '`}) = unclosed(QIDList '`}) <= 0 if metaParse(upModule('LANG-SYNTAX, false), QIDList '`}, 'Stmt) :: ResultPair .
-    eq toEval(QIDList) = false [owise] .
+    eq toEval(QID QIDList) = true .
+    eq toEval(nil) = false .
 
-    op unclosed : QidList -> Int .
-    eq unclosed(QIDList '`}) = _-_(unclosed(QIDList), 1) .
-    eq unclosed(QIDList '`{) = unclosed(QIDList) + 1 .
-    eq unclosed(nil) = 0 .
-    ceq unclosed(QIDList QID) = unclosed(QIDList) if QID =/= '`{ /\ QID =/= '`} .
+    op init : -> Configuration .
+    eq init = < cliReader : CliReader | 
+        buf : "", 
+        state : idle, 
+        composition : upTerm(initConfig), 
+        assertions : pass,
+        counterexampleState : noTerm,
+        counterexamplePath : nil
+    > <> .
+endm
 
-    
-    var ID : Nat .
-    var S'' : SemServiceId .
-    var PATH' : String .
-    vars REQ RESP : IOValue .
+--- red in CLI : getCounterexamplePath(upTerm((none).Configuration), call("assert", args(bool(false)))) .
+--- erew init .
 
-    op cliPrompt : StmtAST -> Msg [ctor] .
+mod TEST is
+    protecting CLI .
 
-    rl cliPrompt(CODE) cli({ CONF }) => cli({ CONF evaluate(CODE) }) .
+    op comp : -> Configuration .
+    eq comp = <> connectionManager(0) initManager(0) init(assign(id("user"), dict(
+    dictItem(str("name"), str("newCompanyEmployee")))) ; assign(id("response"), call("request", args(str("newSystem"),str(
+    "/create"),dict(dictItem(id("user"), id("user")),dictItem(id("aggreement"), dict(dictItem(id("correspondents"), list(
+    str("companyA"),str("companyB"))))))))) ; assign(id("id"), member(id("response"), "id")) ; call("request", args(str(
+    "newSystem"),str("/send"),dict(dictItem(id("user"), id("user")),dictItem(id("id"), id("id")))))) service("newSystem",
+    server(code(function("create", params(id("request")), assign(id("agreements"), call("getPersistent", args(str(
+    "aggreements")))) ; assign(id("aggreement"), dict(dictItem(id("id"), call("len", args(id("agreements")))),dictItem(id(
+    "correspondents"), processLang('token[''request.agreements.correspondents.Qid])),dictItem(id("signs"), list(empty)))) ;
+    assign(id("aggreements"), call("append", args(id("aggreements"),id("aggreement")))) ; call("setPersistent", args(str(
+    "aggreements"),id("aggreements"))) ; call("respond", args(id("aggreement"))))),routes(route("/create", "create"),route(
+    "/decline", "decline"),route("/ext/create", "extCreate"),route("/ext/decline", "extDecline"),route("/ext/retract",
+    "extRetract"),route("/ext/sign", "extSign"),route("/retract", "retract"),route("/send", "send"),route("/sign",
+    "sign")),persistent("agreements", list(nil)),persistent("correspondents", toIO(getValue(evalExpr(dict(dictItem(str(
+    "companyA"), str("oldSystemA")),dictItem(str("comapnyB"), str("oldSystemB"))), [empty | empty | stack(0, empty)])),
+    getState(evalExpr(dict(dictItem(str("companyA"), str("oldSystemA")),dictItem(str("comapnyB"), str("oldSystemB"))), [
+    empty | empty | stack(0, empty)])))))) .
 
-    rl connectionManager(ID)
-        cli({ outcomingRequest(S'', PATH', REQ) CONF })
-    =>
-        connectionManager(ID + 1)
-        connection(ID, $cli, S'', httpRequest(PATH', REQ))
-        cli({ CONF })
-    .
+    op as : -> StmtAST .
+    eq as = call("assert", args(bool(false))) .
+endm
 
-    rl connection(ID, $cli, S'', httpRequest(PATH', REQ), response(RESP))
-        cli({ CONF })
-    =>
-        cli({ incomingResponse(RESP) CONF })
-    .
-endm)
+red getLangProcessError(function(
+    "create", params(id("request")), assign(id("agreements"), call("getPersistent", args(str("aggreements")))) ; assign(id(
+    "aggreement"), dict(dictItem(id("id"), call("len", args(id("agreements")))),dictItem(id("correspondents"), processLang(
+    'token[''request.agreements.correspondents.Qid])),dictItem(id("signs"), list(empty)))) ; assign(id("aggreements"),
+    call("append", args(id("aggreements"),id("aggreement")))) ; call("setPersistent", args(str("aggreements"),id(
+    "aggreements"))) ; call("respond", args(id("aggreement"))))) .

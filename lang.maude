@@ -829,6 +829,16 @@ fmod LANG-SEMANTICS is
     eq {~V, getState(dispatched(~RES, IOVAL, Io))} = dispatched({~V, getState(~RES)}, IOVAL, Io) .
 endfm
 
+fmod LANG-ERRORS is
+
+    protecting LANG-SEMANTICS .
+
+    op getError : [EvalResult] -> String .
+
+    var ~RES : [EvalResult] .
+
+    eq getError(~RES) = "Unknown Error" [owise] .
+endfm
 
 ---(
     Utility module for checking if a token is a valid identifier
@@ -946,6 +956,33 @@ fmod LANG is
 
     op parsePredefined : Qid Qid Qid -> ResultPair? .
     eq parsePredefined(Q2, Q, Q1) = metaParse(upModule(Q, false), downTerm(Q2, 'error), Q1) .
+
+
+    vars ~CODE ~CODE' : [StmtAST] .
+    var CODE CODE' : StmtAST .
+    --- var STR : String .
+    var PARAMS : FuncParams .
+    var EXPR : ExprAST .
+    var ~EXPR : [ExprAST] .
+    var ~DICT : [DictEntryListAST] .
+    var DICT DICT' : DictEntryListAST .
+
+
+    op getLangProcessError : AST ~> String .
+    --- ceq getLangProcessError(~CODE) = "Unknown Language Parse Error" if not ~CODE :: AST .
+    ceq getLangProcessError(function(STR, PARAMS, ~CODE') ; ~CODE) = "Error in function " + STR + ": " + getLangProcessError(~CODE') if not ~CODE' :: AST .
+    ceq getLangProcessError(CODE ; ~CODE ; CODE') = getLangProcessError(~CODE) if not ~CODE :: AST and CODE =/= pass and CODE' =/= pass . 
+
+    ceq getLangProcessError(assign(EXPR, ~EXPR)) = "In assignment: " + getExprProcessError(~EXPR) if not ~EXPR :: ExprAST .
+
+    op getExprProcessError : ExprAST ~> String .
+    ceq getExprProcessError(dict(~DICT)) = "In dictionary: " + getDictProcessError(~DICT) if not ~DICT :: DictEntryListAST .
+    ceq getExprProcessError(process('token[T])) = "Invalid token " + string(downTerm(T, '$err)) if not process('token[T]) :: AST .
+
+    op getDictProcessError : DictEntryListAST ~> String .
+    ceq getDictProcessError(DICT, ~DICT, DICT') = getDictProcessError(~DICT) if not ~DICT :: DictEntryListAST and DICT =/= emptyDict and DICT' =/= emptyDict .
+    ceq getDictProcessError(dictItem(id(STR), ~EXPR)) = "In field " + STR + ": " + getExprProcessError(~EXPR) if not ~EXPR :: ExprAST .
+
 endfm
 
 load file.maude
@@ -984,6 +1021,8 @@ mod FILE-READER is
     op scanFile : String -> Msg [ctor] .
     op scannedFile : String String -> Msg [ctor] .
 
+    op readerError : String String -> Msg [ctor] .
+
     eq getFileContents(S) = extractReader(scanFile(S)) .
 
     rl scanFile(S) => <> < reader(S) : Reader | result: "", fhIn: maybe, done: false, fileName: S > openFile(fileManager, reader(S), S, "r") .
@@ -1005,6 +1044,9 @@ mod FILE-READER is
     rl < reader(F) : Reader | result: TEXT, done: true, fileName: F, Attrs > closedFile(reader(F), FHIn) <>
     => scannedFile(F, TEXT)
     .
+
+    rl < reader(F) : Reader | Attrs > fileError(reader(F), FHIn, TEXT)
+    => readerError(F, TEXT) .
 
     var CONF : Configuration .
 
@@ -1040,25 +1082,25 @@ mod LANG-IO is
     var QIDS : QidList .
     var A : AST .
 
-    op preParse : String -> ResultPair? .
+    op preParse : String ~> ResultPair? .
     eq preParse(S) = metaParse(upModule('LANG-SYNTAX, false), tokenize(S), 'TopLevel) .
 
-    op parse : String -> AST .
+    op parse : String ~> AST .
     eq parse(S) = process(getTerm(metaParse(upModule('LANG-SYNTAX, false), tokenize(S), 'TopLevel))) .
 
-    op execute : String -> EvalResult .
+    op execute : String ~> EvalResult .
     eq execute(S) = evalStmt(parse(S), [funcs | empty | stack(0, empty) ]) .
 
-    op executeFile : String -> EvalResult .
+    op executeFile : String ~> EvalResult .
     eq executeFile(S) = execute(getFileContents(S)) .
     
     var V : IOValue .
-    op executeFile : String IOValue -> EvalResult .
+    op executeFile : String IOValue ~> EvalResult .
     eq executeFile(S, V) = unlock(execute(getFileContents(S)), V) .
 
-    op parseFile : String -> AST .
+    op parseFile : String ~> AST .
     eq parseFile(S) = parse(getFileContents(S)) .
 
-    op executeAST : AST -> EvalResult .
+    op executeAST : AST ~> EvalResult .
     eq executeAST(A) = evalStmt(A, [funcs | empty | stack(0, empty) ]) .
 endm

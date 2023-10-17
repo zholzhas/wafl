@@ -1,0 +1,13 @@
+		     \||||||||||||||||||/
+		   --- Welcome to Maude ---
+		     /||||||||||||||||||\
+	    Maude 3.2.1 built: Feb 21 2022 18:21:17
+	     Copyright 1997-2022 SRI International
+		   Mon Oct 16 10:50:38 2023
+==========================================
+reduce in CLI : getCounterexamplePath(upTerm((none).Configuration), call(
+    "assert", args(bool(false)))) .
+rewrites: 120 in 10ms cpu (14ms real) (12000 rewrites/second)
+result Trace: (nil).Trace
+
+Bye.

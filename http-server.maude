@@ -38,12 +38,15 @@ fmod SERVER-SYNTAX is
 
     op service_{_} : Token ComponentList -> Service [ctor] .
     op init`{_`} : TopLevel -> Service [ctor] .
+    op props`{_`} : TopLevel -> PropCode [ctor] .
 
     sorts Service ServiceList .
     subsort Service < ServiceList .
     op none : -> ServiceList [ctor] .
     op __ : ServiceList ServiceList -> ServiceList [ctor assoc comm id: none] .
 
+    sort PropCode .
+    subsort PropCode < ServiceList .
 endfm
 
 ---(
@@ -113,25 +116,40 @@ mod SERVER is
     protecting (LANG + LANG-IO) * (op process : Term ~> AST to processLang) .
     protecting SERVER-AST .
     protecting STRING .
+    protecting LANG-ERRORS .
 
     vars T T1 T2 : Term .
     var TL TL1 : TermList .
     var QIDS : QidList .
 
-    op processComponents : TermList ~> SemComponentList .
+    sort SemComponentList? .
+    subsort SemComponentList < SemComponentList? .
+
+    op compositionError : String -> SemComponentList? .
+
+    op processComponents : TermList ~> SemComponentList? .
     eq processComponents('empty.ComponentList) = $empty .
     eq processComponents('__[T, TL]) = processComponents(T), processComponents(TL) .
 
-    eq processComponents('code`{_`}[T]) = code(processLang(T)) .
+    ceq processComponents('code`{_`}[T]) = code(processLang(T)) if processLang(T) :: StmtAST .
+    ceq processComponents('code`{_`}[T]) = compositionError("Error in code : " + getLangProcessError(processLang(T))) if not processLang(T) :: StmtAST .
+
+
     eq processComponents('routes`{_`}[TL]) = routes(processRoutes(TL)) .
-    eq processComponents('persistent_=_;['token[T], T1]) = persistent(
+
+    ceq processComponents('persistent_=_;['token[T], T1]) = persistent(
         string(downTerm(T, '$err)), 
         toIO(
             getValue(evalExpr(processLang(T1), [ empty | empty | stack(0, empty) ])),
             getState(evalExpr(processLang(T1), [ empty | empty | stack(0, empty) ]))
         )
-    ) .
-
+    ) if evalExpr(processLang(T1), [ empty | empty | stack(0, empty) ]) :: EvalResult .
+    
+    ceq processComponents('persistent_=_;['token[T], T1]) = compositionError(
+        "Error in persistent " + string(downTerm(T, '$err)) + ": " + getError(
+            evalExpr(processLang(T1), [ empty | empty | stack(0, empty) ])
+    ))
+    if not evalExpr(processLang(T1), [ empty | empty | stack(0, empty) ]) :: EvalResult .
 
     op processRoutes : TermList ~> SemRouter .
     eq processRoutes('__[T, T1]) = processRoutes(T), processRoutes(T1) .
@@ -150,7 +168,32 @@ mod SERVER is
         )
     ) .
     eq processConfig('init`{_`}[T]) = init(processLang(T)) .
+    eq processConfig('props`{_`}[T]) = none .
 
+
+    op getCompositionError : [Configuration] -> String .
+    
+    var ~CONF : [Configuration] .
+    var CONF : Configuration .
+    var S : SemServiceId .
+    var STR : String .
+    var SERV : SemComponentList .
+    var ~SERV : [SemComponentList] .
+    var COMPONENT : SemComponent .
+    var ERR : [String] .
+    var ~CODE : [AST] .
+    var CODE : AST .
+
+    --- eq getCompositionError(~CONF) = "Unknown Composition Error" [owise] .
+    eq getCompositionError(init(CODE) ~CONF) = getCompositionError(~CONF) .
+    eq getCompositionError(init(~CODE) ~CONF) = getLangProcessError(~CODE) [owise] .
+    eq getCompositionError(service(S, server(SERV)) ~CONF) = getCompositionError(~CONF) .
+    eq getCompositionError(service(STR, server(~SERV)) ~CONF) = "Error in service " + STR + ": " + getComponentError(~SERV) [owise] .
+
+    op getComponentError : [SemComponentList] -> String .
+    eq getComponentError(~SERV) = "Unknown Component Error" [owise] .
+    eq getComponentError(COMPONENT, ~SERV) = getComponentError(~SERV) [owise] .
+    eq getComponentError(compositionError(ERR), ~SERV) = ERR .
 endm
 
 
@@ -547,10 +590,16 @@ mod PRINTER is
     eq printAst('routes[T], N) = tabs(N) + "routes {" + "..." ---(printAst(T, s(N)) + "\n" + tabs(N)) + "}" .
     eq printAst('process[T, T', T''], N) = tabs(N) + "process for " + printInnerConnection(T, s(N)) + " : " + "[ waiting connection " + printAst(T'') + " ]" .
     eq printAst('process[T, T'], N) = tabs(N) + "process for " + printInnerConnection(T, s(N)) + " : " + "[ " + printProcessStatus(T', s(N)) + " ]" .
+    --- eq printAst('map[T], N) = tabs(N) + "{" + printMapEntries(T) + "}" .
+
+    --- op printMapEntries : Term ~> String .
+    --- eq printMapEntries('_`,_[T, T']) = printMapEntries(T) + ", " + printMapEntries(T') .
+    --- eq printMapEntries('_|->_[T, T']) = printAst(T) + " : " + printAst(T') . 
     
     op printInnerConnection : Term Nat ~> String .
     eq printInnerConnection('connection[T, T1, T2, 'httpRequest[T3, T4]], N) = "CONN : " + printAst(T) + " | " + printAst(T3) + " ~ " + printAst(T4) .
     eq printInnerConnection('dummyConnection.SemConnection, N) = "init" .
+
 
     op printProcessStatus : Term Nat ~> String .
     eq printProcessStatus(T, N) = printProcessStatus(downTerm(T, { none }), N) [owise] .
@@ -703,20 +752,48 @@ mod COMPOSITION-TO-LANGUAGE is
     )) .
 endm
 
-mod COMPOSITION-PREDS is
-    including (SATISFACTION + LTL + MODEL-CHECKER) * (sort State to CompositionState) .
+mod ASSERTION-CHECK is
     protecting SERVER-SEMANTICS .
     protecting COMPOSITION-TO-LANGUAGE .
+    protecting BOOL .
+
+    op satisfies : Configuration StmtAST ~> Bool .
+    op checkAssertions : EvalResult ~> Bool .
+    op checkValid : [EvalResult] -> Bool .
+
+    var St : State .
+    var ~RES : [EvalResult] .
+    var B : Bool .
+    var CONF : Configuration .
+    var CODE : StmtAST .
+
+    eq satisfies(CONF, CODE) = if checkValid(evalStmt(CODE, toState(CONF))) then checkAssertions(evalStmt(CODE, toState(CONF))) else false fi .
+
+    eq checkAssertions({ void, St }) = true .
+    eq checkAssertions(dispatched(~RES, boolVal(B), assertion)) = B and checkAssertions(~RES) .
+    
+    eq checkValid({ void, St }) = true .
+    eq checkValid(dispatched(~RES, boolVal(B), assertion)) = checkValid(~RES) .
+    --- eq checkValid(~RES) = false [owise] .
+endm
+
+--- mod COMPOSITION-INTEGRITY-CHECK is
+---     protecting ASSERTION-CHECK .
+
+---     op isCompositionValid : 
+--- endm
+
+mod COMPOSITION-PREDS is
+    including (SATISFACTION + LTL + MODEL-CHECKER) * (sort State to CompositionState) .
+    protecting ASSERTION-CHECK .
 
     subsort Configuration < CompositionState .
 
     op unhandledRequest : -> Prop [ctor] .
     
     op assertions : StmtAST -> Prop [ctor] .
+    op prepareAssertions : StmtAST ~> Prop [ctor] .
 
-    op checkAssertions : EvalResult ~> Bool .
-
-    
 
     var CONF : Configuration .
     vars S S' PATH : String .
@@ -726,18 +803,13 @@ mod COMPOSITION-PREDS is
     var ENV : Environment .
     var CODE : StmtAST .
 
+    eq prepareAssertions(CODE) = assertions(CODE) .
+
     eq CONF connection(ID, S, PATH, REQ) |= unhandledRequest = true .
     eq CONF service(S, server(SERV, process(connection(ID, S', PATH, REQ), ENV))) |= unhandledRequest = true .
     eq CONF |= unhandledRequest = false [owise] .
 
     eq CONF |= assertions(CODE) = checkAssertions(evalStmt(CODE, toState(CONF))) .
-
-    var St : State .
-    var ~RES : [EvalResult] .
-    var B : Bool .
-
-    eq checkAssertions({ void, St }) = true .
-    eq checkAssertions(dispatched(~RES, boolVal(B), assertion)) = B and checkAssertions(~RES) .
 endm
 
 mod COMPOSITION is
@@ -772,7 +844,7 @@ mod COMPOSITION is
     op initComposition : ~> Configuration .
     eq initComposition = < composition : Composition | metaTerm : noTerm > .
 
-    vars O O' COMP PARSER : Oid .
+    vars O O' O'' COMP PARSER : Oid .
     vars T T' : Term .
     var T? : Term? .
     vars ATTRS ATTRS' : AttributeSet .
@@ -813,6 +885,9 @@ mod COMPOSITION is
     vars N N' : Nat .
     var QID : Qid .
     var QLIST : QidList .
+
+    op formatErrorString : String ResultPair? -> String .
+    eq formatErrorString(TEXT, noParse(I)) = "Failed to parse: " + printTokens(subQidList(tokenize(TEXT), _-_(I, 19), 20)) + " <-- HERE" .
 
     op generateError : String ResultPair? -> ConfigurationOrError .
     eq generateError(TEXT, noParse(I)) = parseError("Failed to parse: " + printTokens(subQidList(tokenize(TEXT), _-_(I, 19), 20)) + " <-- HERE") .
@@ -885,39 +960,59 @@ mod COMPOSITION is
     rl wrote(COMP, O') waitingForPrint(O, COMP)
     => simulatedAndPrinted(O, COMP) .
 
-    op check : Oid Oid Formula -> Msg [ctor msg] .
-    op checked : Oid Oid ModelCheckResult -> Msg [ctor msg] .
+    --- op check : Oid Oid Formula -> Msg [ctor msg] .
+    --- op checked : Oid Oid ModelCheckResult -> Msg [ctor msg] .
 
-    op printCheckResult : ModelCheckResult -> String .
-    op printCheckResultShort : ModelCheckResult -> String .
-    op printCounterexample : TransitionList -> String .
+    --- op printCheckResult : ModelCheckResult -> String .
+    --- op printCheckResultShort : ModelCheckResult -> String .
+    --- op printCounterexample : TransitionList -> String .
 
-    var LTL : Formula .
-    var RES : ModelCheckResult .
-    vars CE CE' : TransitionList .
-    var RULE : RuleName .
-    var CONF : Configuration .
+    --- var LTL : Formula .
+    --- var RES : ModelCheckResult .
+    --- vars CE CE' : TransitionList .
+    --- var RULE : RuleName .
+    --- var CONF : Configuration .
     
-    eq printCheckResult(true) = "Valid\n" .
-    eq printCheckResult(counterexample(CE, CE')) = "Invalid: \nStarting at:\n" + printCounterexample(CE) + "\nWith loop:\n" + printCounterexample(CE') .
-    eq printCheckResultShort(counterexample(CE, CE')) = "Invalid:\nWith loop:\n" + printCounterexample(CE') .
+    --- eq printCheckResult(true) = "Valid\n" .
+    --- eq printCheckResult(counterexample(CE, CE')) = "Invalid: \nStarting at:\n" + printCounterexample(CE) + "\nWith loop:\n" + printCounterexample(CE') .
+    --- eq printCheckResultShort(counterexample(CE, CE')) = "Invalid:\nWith loop:\n" + printCounterexample(CE') .
 
-    ceq printCounterexample({CONF, RULE} CE) = printCounterexample(CE) if RULE == unlabeled .
-    ceq printCounterexample({CONF, RULE} CE) = printAst(upTerm(CONF)) + "\n ---> \n" + printCounterexample(CE) if RULE =/= unlabeled .
-    eq printCounterexample(nil) = "END\n" . 
+    --- ceq printCounterexample({CONF, RULE} CE) = printCounterexample(CE) if RULE == unlabeled .
+    --- ceq printCounterexample({CONF, RULE} CE) = printAst(upTerm(CONF)) + "\n ---> \n" + printCounterexample(CE) if RULE =/= unlabeled .
+    --- eq printCounterexample(nil) = "END\n" . 
 
 
-    rl < COMP : Composition | metaTerm : T, ATTRS > check(COMP, O, LTL)
-    => < COMP : Composition | metaTerm : T, ATTRS > checked(O, COMP, modelCheck(downTerm(T, none), LTL)) .
+    --- rl < COMP : Composition | metaTerm : T, ATTRS > check(COMP, O, LTL)
+    --- => < COMP : Composition | metaTerm : T, ATTRS > checked(O, COMP, modelCheck(downTerm(T, none), LTL)) .
 
-    op checkAndPrint : Oid Oid Formula -> Msg [ctor msg] .
-    op checkedAndPrinted : Oid Oid -> Msg [ctor msg] .
+    --- op checkAndPrint : Oid Oid Formula -> Msg [ctor msg] .
+    --- op checkedAndPrinted : Oid Oid -> Msg [ctor msg] .
 
-    rl checkAndPrint(COMP, O, LTL)
-    => check(COMP, O, LTL) waitingForPrint(O, COMP) .
+    --- rl checkAndPrint(COMP, O, LTL)
+    --- => check(COMP, O, LTL) waitingForPrint(O, COMP) .
 
-    rl checked(O, COMP, RES) waitingForPrint(O, COMP)
-    => write(stdout, COMP, printCheckResult(RES)) .
+    --- rl checked(O, COMP, RES) waitingForPrint(O, COMP)
+    --- => write(stdout, COMP, printCheckResult(RES)) .
+
+
+    --- op checker : -> Oid [ctor] .
+    --- op Checker : -> Cid [ctor] .
+
+    --- op code :_ : StmtAST -> Attribute [ctor] .
+
+    --- op loadAssertionCode : Oid Oid String -> Msg [msg] .
+    --- op loadedAssertionCode : Oid Oid -> Msg [msg] .
+
+    --- vars CODE CODE' : StmtAST .
+
+    --- rl < O : Checker | code : CODE, receiver : O'', ATTRS > loadAssertionCode(O, O', F) 
+    --- => scanFile(F) < O : Checker | code : CODE, receiver : O', ATTRS > .
+
+    --- rl < O : Checker | code : CODE, receiver : O', ATTRS > scannedFile(F, TEXT)
+    --- => < O : Checker | code : CODE ; parse(TEXT), receiver : O', ATTRS > loadedAssertionCode(O', O) .
+
+    --- op loadAssertions : String String ~> Prop [ctor] .
+    --- eq loadAssertions(TEXT, F) = prepareAssertions(parseFile(F) ; parse(TEXT)) .
 endm
 
 select COMPOSITION .

@@ -37,6 +37,7 @@ service backend {
             userCount = request("cache", "get", { key : "fav:user:" + user_id, default : 0 });
             request("cache", "set", { key : "fav:user:" + user_id, value : userCount + len(fav) });
             
+            respond("ok");
         }
     }
     routes {
@@ -112,7 +113,7 @@ init {
     request("backend", "/add-favorite", { user : user });
     request("backend", "/add-favorite", { user : { type : "user", id : "0" } });
     request("backend", "/login", { user : user, user_id : "0" });
-    request("backend", "favorite-count", { user : user });
+    request("backend", "/favorite-count", { user : user });
 }
 
 init {
