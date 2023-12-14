@@ -2,6 +2,6 @@ load lang.maude
 
 
 --- erew executeFile("test.lang", list(nil)) .
-erew executeFile("test.lang", intVal(1)) .
+erew executeFile("test.lang") .
 --- erew executeFile("test2.lang", intVal(6)) .
 --- erew parseFile("test.lang") .

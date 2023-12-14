@@ -9,40 +9,25 @@ service newSystem {
 
     routes {
         "/create" -> create
-        "/send" -> send 
-        "/sign" -> sign
-        "/decline" -> decline
-        "/retract" -> retract
-
-        "/ext/create" -> extCreate
-        "/ext/sign" -> extSign
-        "/ext/decline" -> extDecline
-        "/ext/retract" -> extRetract
     }
 
     code {
         function create(request) {
-            agreements = getPersistent("aggreements") ;
+            agreements = getPersistent("agreements") ;
             
-            aggreement = {
-                id : len(agreements) ,
-                correspondents : request . agreements . correspondents ,
-                signs : [] 
-            } ;
-            aggreements = append(aggreements, aggreement) ;
-            setPersistent("aggreements", aggreements) ;
-            respond(aggreement) ;
+            setPersistent("agreements", agreements) ;
+            respond(agreement) ;
         }
     }
 }
 
 init {
     user = { 
-        "name" : "newCompanyEmployee"
+        name : "newCompanyEmployee"
     } ;
     response = request("newSystem", "/create", { 
         user : user,
-        aggreement : {
+        agreement : {
             correspondents : [ "companyA", "companyB" ]
         }
     });
@@ -52,3 +37,11 @@ init {
         id : id
     }) ;
 }
+
+
+props {
+    function test() {
+        assert(len(services . newSystem . persistents . agreements) < 1);
+    }
+}
+

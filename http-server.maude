@@ -132,7 +132,7 @@ mod SERVER is
     eq processComponents('__[T, TL]) = processComponents(T), processComponents(TL) .
 
     ceq processComponents('code`{_`}[T]) = code(processLang(T)) if processLang(T) :: StmtAST .
-    ceq processComponents('code`{_`}[T]) = compositionError("Error in code : " + getLangProcessError(processLang(T))) if not processLang(T) :: StmtAST .
+    ceq processComponents('code`{_`}[T]) = compositionError("Error in code : " + printTokens(getLangProcessError(processLang(T)))) if not processLang(T) :: StmtAST .
 
 
     eq processComponents('routes`{_`}[TL]) = routes(processRoutes(TL)) .
@@ -170,8 +170,13 @@ mod SERVER is
     eq processConfig('init`{_`}[T]) = init(processLang(T)) .
     eq processConfig('props`{_`}[T]) = none .
 
+    op processProps : TermList ~> StmtAST .
+    eq processProps('__[T, T1]) = processProps(T) ; processProps(T1) .
+    eq processProps(T) = pass [owise] .
+    eq processProps('props`{_`}[T]) = processLang(T) .
 
-    op getCompositionError : [Configuration] -> String .
+
+    op getCompositionError : [Configuration] -> QidList .
     
     var ~CONF : [Configuration] .
     var CONF : Configuration .
@@ -184,16 +189,16 @@ mod SERVER is
     var ~CODE : [AST] .
     var CODE : AST .
 
-    --- eq getCompositionError(~CONF) = "Unknown Composition Error" [owise] .
-    eq getCompositionError(init(CODE) ~CONF) = getCompositionError(~CONF) .
-    eq getCompositionError(init(~CODE) ~CONF) = getLangProcessError(~CODE) [owise] .
-    eq getCompositionError(service(S, server(SERV)) ~CONF) = getCompositionError(~CONF) .
-    eq getCompositionError(service(STR, server(~SERV)) ~CONF) = "Error in service " + STR + ": " + getComponentError(~SERV) [owise] .
+    eq getCompositionError(~CONF) = 'Unknown '\s 'Composition '\s 'Error [owise] .
+    --- eq getCompositionError(init(CODE) ~CONF) = getCompositionError(~CONF) .
+    --- eq getCompositionError(init(~CODE) ~CONF) = getLangProcessError(~CODE) [owise] .
+    --- eq getCompositionError(service(S, server(SERV)) ~CONF) = getCompositionError(~CONF) .
+    --- eq getCompositionError(service(STR, server(~SERV)) ~CONF) = "Error in service " + STR + ": " + getComponentError(~SERV) [owise] .
 
-    op getComponentError : [SemComponentList] -> String .
-    eq getComponentError(~SERV) = "Unknown Component Error" [owise] .
-    eq getComponentError(COMPONENT, ~SERV) = getComponentError(~SERV) [owise] .
-    eq getComponentError(compositionError(ERR), ~SERV) = ERR .
+    --- op getComponentError : [SemComponentList] -> String .
+    --- eq getComponentError(~SERV) = "Unknown Component Error" [owise] .
+    --- eq getComponentError(COMPONENT, ~SERV) = getComponentError(~SERV) [owise] .
+    --- eq getComponentError(compositionError(ERR), ~SERV) = ERR .
 endm
 
 
@@ -564,44 +569,44 @@ mod PRINTER is
     protecting META-LEVEL .
     protecting SERVER-SEMANTICS .
 
-    op printAst : Term ~> String .
-    op printAst : Term Nat ~> String .
+    op printAst : Term ~> QidList .
+    op printAst : Term Nat ~> QidList .
 
     vars T T' T'' T1 T2 T3 T4 T5 : Term .
     vars TL TL' : TermList .
     var N : Nat .
 
-    op tabs : Nat -> String .
-    eq tabs(s(N)) = "\t" + tabs(N) .
-    eq tabs(0) = "" .
+    op tabs : Nat -> QidList .
+    eq tabs(s(N)) = '\t tabs(N) .
+    eq tabs(0) = nil .
 
     
     eq printAst(T) = printAst(T, 0) .
 
-    eq printAst(T, N) = tabs(N) +  printTokens(metaPrettyPrint(['SERVER-SEMANTICS], none, T, mixfix format number rat)) [owise] .
+    eq printAst(T, N) = tabs(N) metaPrettyPrint(['SERVER-SEMANTICS], none, T, mixfix format number rat) [owise] .
 
-    eq printAst('__[T, TL], N) = if printAst(T, N) =/= "" then printAst(T, N) + "\n" else "" fi + printAst('__[TL], N) .
-    eq printAst('_`,_[T, TL], N) = if printAst(T, N) =/= "" then printAst(T, N) + "\n" else "" fi + printAst('__[TL], N) .
-    eq printAst('__[empty], N) = "" .
+    eq printAst('__[T, TL], N) = if printAst(T, N) =/= nil then printAst(T, N) '\n else nil fi printAst('__[TL], N) .
+    eq printAst('_`,_[T, TL], N) = if printAst(T, N) =/= nil then printAst(T, N) '\n else nil fi printAst('__[TL], N) .
+    eq printAst('__[empty], N) = nil .
 
-    eq printAst('service[T, T'], N) = tabs(N) + "service " + printAst(T, 0) + " {\n" + printAst(T', s(N)) + "\n" + tabs(N) + "}" .
+    eq printAst('service[T, T'], N) = tabs(N) 'service '\s printAst(T, 0) '\s '`{ '\n printAst(T', s(N)) '\n tabs(N) '`} .
     eq printAst('server[T], N) = printAst(T, N) .
-    eq printAst('code[T], N) = tabs(N) + "code {" + "..." ---(printAst(T, s(N)) + "\n" + tabs(N)) + "}" .
-    eq printAst('routes[T], N) = tabs(N) + "routes {" + "..." ---(printAst(T, s(N)) + "\n" + tabs(N)) + "}" .
-    eq printAst('process[T, T', T''], N) = tabs(N) + "process for " + printInnerConnection(T, s(N)) + " : " + "[ waiting connection " + printAst(T'') + " ]" .
-    eq printAst('process[T, T'], N) = tabs(N) + "process for " + printInnerConnection(T, s(N)) + " : " + "[ " + printProcessStatus(T', s(N)) + " ]" .
+    eq printAst('code[T], N) = tabs(N) 'code '\s '`{ '... ---(printAst(T, s(N)) + "\n" + tabs(N)) '`} .
+    eq printAst('routes[T], N) = tabs(N) 'routes '\s '`{ '... ---(printAst(T, s(N)) + "\n" + tabs(N)) '`} .
+    eq printAst('process[T, T', T''], N) = tabs(N) 'process '\s 'for '\s printInnerConnection(T, s(N)) '\s ': '\s '`[ '\s 'waiting 'connection '\s printAst(T'') '\s '`] .
+    eq printAst('process[T, T'], N) = tabs(N) 'process '\s 'for '\s printInnerConnection(T, s(N)) '\s ': '\s '`[ '\s printProcessStatus(T', s(N)) '\s '`] .
     --- eq printAst('map[T], N) = tabs(N) + "{" + printMapEntries(T) + "}" .
 
     --- op printMapEntries : Term ~> String .
     --- eq printMapEntries('_`,_[T, T']) = printMapEntries(T) + ", " + printMapEntries(T') .
     --- eq printMapEntries('_|->_[T, T']) = printAst(T) + " : " + printAst(T') . 
     
-    op printInnerConnection : Term Nat ~> String .
-    eq printInnerConnection('connection[T, T1, T2, 'httpRequest[T3, T4]], N) = "CONN : " + printAst(T) + " | " + printAst(T3) + " ~ " + printAst(T4) .
-    eq printInnerConnection('dummyConnection.SemConnection, N) = "init" .
+    op printInnerConnection : Term Nat ~> QidList .
+    eq printInnerConnection('connection[T, T1, T2, 'httpRequest[T3, T4]], N) = 'CONN '\s ': 's printAst(T) '\s '| '\s printAst(T3) '\s '~ '\s printAst(T4) .
+    eq printInnerConnection('dummyConnection.SemConnection, N) = 'init .
 
 
-    op printProcessStatus : Term Nat ~> String .
+    op printProcessStatus : Term Nat ~> QidList .
     eq printProcessStatus(T, N) = printProcessStatus(downTerm(T, { none }), N) [owise] .
 
     var CONF : Configuration .
@@ -613,15 +618,15 @@ mod PRINTER is
     var RES : EvalResult .
     var ~RES : [EvalResult] .
 
-    op printProcessStatus : Environment Nat ~> String .
-    eq printProcessStatus({ none }, N) = "empty" .
-    eq printProcessStatus({ outcomingRequest(S, PATH, REQ) CONF }, N) = "sent request to [" + S + " @ " + PATH  + "] : \n" + tabs(N) + printAst(upTerm(REQ)) + " ." .
-    eq printProcessStatus({ incomingResponse(RESP) CONF }, N) = "got response  : " + printAst(upTerm(RESP)) + " ." .
-    eq printProcessStatus({ setPersistent(S, IOVAL) CONF }, N) = "setting persistent " + S + " = " + printAst(upTerm(IOVAL)) + " ." .
-    eq printProcessStatus({ setPersistentOk CONF }, N) = "persistent changed " + " ." .
-    eq printProcessStatus({ < O : Executor | ATTRS, waiting : getPersistentValue > CONF }, N) = "waiting for access to persistent value" .
-    eq printProcessStatus({ < O : Executor | ATTRS, currentResult : RES, waiting : none > CONF }, N) = "ended execution" .
-    eq printProcessStatus({ < O : Executor | ATTRS, currentResult : dispatched(~RES, IOVAL, Io), waiting : none > CONF }, N) = "language dispathed " + printAst(upTerm(IOVAL)) + " to channel " + printAst(upTerm(Io)) .
+    op printProcessStatus : Environment Nat ~> QidList .
+    eq printProcessStatus({ none }, N) = 'empty .
+    eq printProcessStatus({ outcomingRequest(S, PATH, REQ) CONF }, N) = 'sent '\s 'request '\s 'to '\s '`[ tokenize(S) '\s '@ '\s tokenize(PATH) '`] '\s ': '\n tabs(N) printAst(upTerm(REQ)) '\s '. .
+    eq printProcessStatus({ incomingResponse(RESP) CONF }, N) = 'got '\s 'response '\s ': '\s printAst(upTerm(RESP)) '\s '. .
+    eq printProcessStatus({ setPersistent(S, IOVAL) CONF }, N) = 'setting '\s 'persistent '\s tokenize(S) '\s '= '\s printAst(upTerm(IOVAL)) '\s '. .
+    eq printProcessStatus({ setPersistentOk CONF }, N) = 'persistent '\s 'changed '\s '. .
+    eq printProcessStatus({ < O : Executor | ATTRS, waiting : getPersistentValue > CONF }, N) = 'waiting '\s 'for '\s 'access '\s 'to '\s 'persistent '\s 'value .
+    eq printProcessStatus({ < O : Executor | ATTRS, currentResult : RES, waiting : none > CONF }, N) = 'ended '\s 'execution .
+    eq printProcessStatus({ < O : Executor | ATTRS, currentResult : dispatched(~RES, IOVAL, Io), waiting : none > CONF }, N) = 'language '\s 'dispathed '\s printAst(upTerm(IOVAL)) '\s 'to '\s 'channel '\s printAst(upTerm(Io)) .
     eq printProcessStatus({ CONF }, N) = printAst(upTerm(CONF), N) [owise] .
 endm
 
@@ -759,7 +764,9 @@ mod ASSERTION-CHECK is
 
     op satisfies : Configuration StmtAST ~> Bool .
     op checkAssertions : EvalResult ~> Bool .
-    op checkValid : [EvalResult] -> Bool .
+    op checkValid : EvalResult ~> Bool .
+    op noErrors : Configuration ~> Bool .
+    op checkServValid : EvalResult ~> Bool .
 
     var St : State .
     var ~RES : [EvalResult] .
@@ -767,14 +774,36 @@ mod ASSERTION-CHECK is
     var CONF : Configuration .
     var CODE : StmtAST .
 
-    eq satisfies(CONF, CODE) = if checkValid(evalStmt(CODE, toState(CONF))) then checkAssertions(evalStmt(CODE, toState(CONF))) else false fi .
+    eq satisfies(CONF, CODE) = if checkValid(evalStmt(CODE, toState(CONF))) and noErrors(CONF) then checkAssertions(evalStmt(CODE, toState(CONF))) else false fi .
 
     eq checkAssertions({ void, St }) = true .
     eq checkAssertions(dispatched(~RES, boolVal(B), assertion)) = B and checkAssertions(~RES) .
     
     eq checkValid({ void, St }) = true .
     eq checkValid(dispatched(~RES, boolVal(B), assertion)) = checkValid(~RES) .
-    --- eq checkValid(~RES) = false [owise] .
+    eq checkValid(~RES) = false [owise] .
+
+    var S : SemServiceId .
+    var SERV : SemComponentList .
+    var EXEC : Oid .
+    var CONN : SemConnection .
+    var ATTRS : AttributeSet .
+    var IOVAL : IOValue .
+    var Io : IO .
+    var N : Nat .
+    --- var ~RES : [EvalResult] .
+
+    eq noErrors(CONF service(S, server(SERV, process(CONN, {
+        < EXEC : Executor | ATTRS, currentResult : ~RES >
+    }))))
+    = checkServValid(~RES) and noErrors(CONF) .
+
+    eq noErrors(CONF) = true [owise] .
+
+    eq checkServValid({ void, St }) = true .
+    eq checkServValid({ void, locked(St, N, Io) }) = true .
+    eq checkServValid(dispatched(~RES, IOVAL, Io)) = true .
+    eq checkServValid(~RES) = false [owise] .
 endm
 
 --- mod COMPOSITION-INTEGRITY-CHECK is
@@ -886,8 +915,11 @@ mod COMPOSITION is
     var QID : Qid .
     var QLIST : QidList .
 
-    op formatErrorString : String ResultPair? -> String .
-    eq formatErrorString(TEXT, noParse(I)) = "Failed to parse: " + printTokens(subQidList(tokenize(TEXT), _-_(I, 19), 20)) + " <-- HERE" .
+    op formatErrorString : String ResultPair? -> QidList .
+    eq formatErrorString(TEXT, noParse(I)) = 'Failed '\s 'to '\s 'parse: '\s subQidList(tokenize(TEXT), _-_(I, 19), 20) '\s '<-- '\s 'HERE .
+
+    op formatErrorString : QidList ResultPair? -> QidList .
+    eq formatErrorString(QLIST, noParse(I)) = 'Failed '\s 'to '\s 'parse: '\s subQidList(QLIST, _-_(I, 19), 20) '\s '<-- '\s 'HERE .
 
     op generateError : String ResultPair? -> ConfigurationOrError .
     eq generateError(TEXT, noParse(I)) = parseError("Failed to parse: " + printTokens(subQidList(tokenize(TEXT), _-_(I, 19), 20)) + " <-- HERE") .
@@ -955,7 +987,7 @@ mod COMPOSITION is
     => simulate(COMP, O) waitingForPrint(O, COMP) .
 
     rl simulated(O, COMP, T) waitingForPrint(O, COMP)
-    => write(stdout, COMP, printAst(T)) waitingForPrint(O, COMP) .
+    => write(stdout, COMP, printTokens(printAst(T))) waitingForPrint(O, COMP) .
 
     rl wrote(COMP, O') waitingForPrint(O, COMP)
     => simulatedAndPrinted(O, COMP) .

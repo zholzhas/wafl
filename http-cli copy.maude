@@ -10,8 +10,7 @@ fmod CLI-COMMANDS is
     --- op assertions from_ : Token -> Command .
 
     op show state : -> Command .
-    op show trace : -> Command .
-    --- op trace to_ : Token -> Command .
+    op trace to_ : Token -> Command .
 
     op always_ : Expr -> Command .
     op check last state_ : Expr -> Command .
@@ -48,7 +47,6 @@ mod CLI is
     ops resetting resettingCode resettingModel : -> CliState .
     ops openningTraceFile printingTrace : String -> CliState .
     ops writingToTraceFile closingTraceFile : String Oid -> CliState .
-    op printingTrace : -> CliState .
     op  printingToFile : String -> CliState .
     ops simulating printingSimulationResult : -> CliState .
     op dumpingSimulationResult : -> CliState .
@@ -65,12 +63,11 @@ mod CLI is
     op counterexampleState :_ : Term? -> Attribute [ctor] .
     op counterexamplePath :_ : Trace? -> Attribute [ctor] .
     op simulationResult :_ : Term? -> Attribute [ctor] .
-    op input :_ : ResultPair? -> Attribute [ctor] .
+    op input :_ : TermList -> Attribute [ctor] .
     op output :_ : QidList -> Attribute [ctor] .
     op stdio :_ : Bool -> Attribute [ctor] .
 
     op parseCommand : String -> ResultPair? .
-    op parseCommand : QidList -> ResultPair? .
     op parseLang : String -> ResultPair? .
 
 
@@ -89,7 +86,7 @@ mod CLI is
     op printTrace : Trace? Term -> QidList .
     
     op printEvalResult : EvalResult ~> QidList .
-    op dumpConfig : Term ~> QidList .
+    op dumpConfig : Term ~> SQidList .
 
     op simulate : Term -> Term .
 
@@ -116,7 +113,6 @@ mod CLI is
     var R : Rule .
     var QI : Qid .
     var QIL : QidList .
-    var RP? : ResultPair? .
 
     eq printTrace(failure) = 'Model '\s 'is '\s 'valid. '\s 'No '\s 'trace '\s 'to '\s 'show. '\n .
     eq printTrace(nil) = 'END '\s 'OF '\s 'TRACE '\n .
@@ -128,6 +124,7 @@ mod CLI is
 
     eq getErrorPosition(noParse(N)) = N .
 
+    var TYPE : Type .
 
     eq commandToState('model`from_[T], TYPE) = loadingComposition(tokenToString(T)) .
     eq commandToState('assertions`from_[T], TYPE) = loadingAssertions(tokenToString(T)) .
@@ -135,7 +132,6 @@ mod CLI is
     eq commandToState('always_[T], TYPE) = checkingAlways(processLang(T)) .
     eq commandToState('check`last`state_[T], TYPE) = checkingLastState(processLang(T)) .
     eq commandToState('show`state.Command, TYPE) = showingState .
-    eq commandToState('show`trace.Command, TYPE) = printingTrace .
     eq commandToState('reset.Command, TYPE) = resetting .
     eq commandToState('reset`code.Command, TYPE) = resettingCode .
     eq commandToState('reset`model.Command, TYPE) = resettingModel .
@@ -149,7 +145,6 @@ mod CLI is
     eq mergeConfigs(noTerm, COMP) = COMP .
 
     eq parseCommand(S) = metaParse(upModule('LOOP-COMMANDS, false), tokenize(S), 'Command) .
-    eq parseCommand(QIL) = metaParse(upModule('LOOP-COMMANDS, false), QIL, 'Command) .
     eq parseLang(S) = metaParse(upModule('LANG-SYNTAX, false), tokenize(S), 'TopLevel) .
 
     eq searchCounterexample(COMP, CODE) = metaSearch(upModule('ASSERTION-CHECK, true), COMP, 'C:Configuration, ('satisfies['C:Configuration, upTerm(CODE)] = 'false.Bool), '*, unbounded, 0) .
@@ -166,10 +161,10 @@ mod CLI is
         write(stdout, cliReader, printTokens(QI QIL) + "\n")
     .
 
-    rl < cliReader : CliReader | state : writing, stdio : true, ATTRS >
+    rl < cliReader : CliReader | state : writing, ATTRS >
         wrote(cliReader, stdout)
     =>
-        < cliReader : CliReader | state : idle, stdio : true, ATTRS >
+        < cliReader : CliReader | state : idle, ATTRS >
     .
 
     rl < cliReader : CliReader | buf : S, state : idle, stdio : true, ATTRS >
@@ -190,45 +185,137 @@ mod CLI is
                 < cliReader : CliReader | buf : "", state : writing, input : failure, stdio : true, output : formatErrorString(S + INPUT, parseCommand(S + INPUT)), ATTRS >
             fi
         fi
-    .
-
 
     rl < cliReader : CliReader | input : {T, TYPE}, state : reading, ATTRS >
     =>
         < cliReader : CliReader | input : failure, state : commandToState(T, TYPE), ATTRS >
     .
 
+
+    --- rl < cliReader : CliReader | state : loadingComposition(S), ATTRS >
+    --- => < cliReader : CliReader | state : waitingParser(S), ATTRS >
+    ---     scanFile(S)
+    --- .
+
+    --- rl < cliReader : CliReader | state : waitingParser(S), ATTRS >
+    ---     readerError(S, TEXT)
+    --- =>
+    ---     < cliReader : CliReader | state : writing, ATTRS >
+    ---     write(stdout, cliReader, "Error: " + TEXT + "\n")
+    --- .
+
+    --- rl < cliReader : CliReader | 
+    ---     state : waitingParser(S),
+    ---     composition : COMP?,
+    ---     assertions : CODE,
+    --- ATTRS >
+    ---     scannedFile(S, TEXT)
+    --- =>
+    ---     if parseComposition(TEXT) :: ResultPair then
+    ---         if processConfig(getTerm(parseComposition(TEXT))) :: Configuration then
+    ---             if processProps(getTerm(parseComposition(TEXT))) :: StmtAST then
+    ---                 < cliReader : CliReader | 
+    ---                     state : writing, 
+    ---                     composition : mergeConfigs(COMP?, upTerm(processConfig(getTerm(parseComposition(TEXT))))),
+    ---                     assertions : (CODE ; processProps(getTerm(parseComposition(TEXT)))), 
+    ---                 ATTRS >
+    ---                 write(stdout, cliReader, "Composition is loaded.\n")
+    ---             else
+    ---                 < cliReader : CliReader | 
+    ---                     state : writing, 
+    ---                     composition : COMP?, 
+    ---                     assertions : CODE,
+    ---                 ATTRS >
+    ---                 write(stdout, cliReader, getLangProcessError(processProps(getTerm(parseComposition(TEXT)))) + "\n")
+    ---                 debug(getLangProcessError(processProps(getTerm(parseComposition(TEXT)))))
+    ---             fi
+    ---         else
+    ---             < cliReader : CliReader | 
+    ---                 state : writing, 
+    ---                 composition : COMP?, 
+    ---                 assertions : CODE,
+    ---             ATTRS >
+    ---             write(stdout, cliReader, getCompositionError(processConfig(getTerm(parseComposition(TEXT)))) + "\n")
+    ---             debug(getCompositionError(processConfig(getTerm(parseComposition(TEXT)))))
+    ---         fi
+    ---     else
+    ---             --- TODO assertions attr
+    ---         < cliReader : CliReader | 
+    ---             state : writing, 
+    ---             composition : COMP?, 
+    ---             assertions : CODE,
+    ---         ATTRS >
+    ---         write(stdout, cliReader, formatErrorString(TEXT, parseComposition(TEXT)) + "\n")
+    ---     fi
+    --- .
+
+    --- rl < cliReader : CliReader | state : loadingAssertions(S), ATTRS >
+    --- => < cliReader : CliReader | state : waitingAssertionParser(S), ATTRS >
+    ---     scanFile(S)
+    --- .
+
+    --- rl < cliReader : CliReader | state : waitingAssertionParser(S), assertions : CODE, ATTRS >
+    ---     scannedFile(S, TEXT)
+    --- =>
+    ---     if parseLang(TEXT) :: ResultPair then
+    ---         < cliReader : CliReader | state : writing, assertions : (CODE ; processLang(getTerm(parseLang(TEXT)))), ATTRS >
+    ---         write(stdout, cliReader, "Assertion code is loaded.\n")
+    ---     else
+    ---         < cliReader : CliReader | state : writing, assertions : CODE, ATTRS >
+    ---         write(stdout, cliReader, formatErrorString(TEXT, parseLang(TEXT)) + "\n")
+    ---     fi
+    --- .
+
+    --- rl < cliReader : CliReader | state : waitingAssertionParser(S), assertions : CODE, ATTRS >
+    ---     readerError(S, TEXT)
+    --- =>
+    ---     < cliReader : CliReader | state : writing, assertions : CODE, ATTRS >
+    ---     write(stdout, cliReader, "Error: " + TEXT + "\n")
+    --- .
+
     rl < cliReader : CliReader | 
-        state : loadingTermComposition(T),
+        state : waitingParser(S),
         composition : COMP?,
         assertions : CODE,
-        output : QIL,
     ATTRS >
+        scannedFile(S, TEXT)
     =>
-            if processConfig(T) :: Configuration then
-                if processProps(T) :: StmtAST then
+        if parseComposition(TEXT) :: ResultPair then
+            if processConfig(getTerm(parseComposition(TEXT))) :: Configuration then
+                if processProps(getTerm(parseComposition(TEXT))) :: StmtAST then
                     < cliReader : CliReader | 
                         state : writing, 
-                        composition : mergeConfigs(COMP?, upTerm(processConfig(T))),
-                        assertions : (CODE ; processProps(T)), 
-                        output : ('Composition '\s 'is '\s 'loaded),
+                        composition : mergeConfigs(COMP?, upTerm(processConfig(getTerm(parseComposition(TEXT))))),
+                        assertions : (CODE ; processProps(getTerm(parseComposition(TEXT)))), 
                     ATTRS >
+                    write(stdout, cliReader, "Composition is loaded.\n")
                 else
                     < cliReader : CliReader | 
                         state : writing, 
                         composition : COMP?, 
                         assertions : CODE,
-                        output : getLangProcessError(processProps(T)),
                     ATTRS >
+                    write(stdout, cliReader, getLangProcessError(processProps(getTerm(parseComposition(TEXT)))) + "\n")
+                    debug(getLangProcessError(processProps(getTerm(parseComposition(TEXT)))))
                 fi
             else
                 < cliReader : CliReader | 
                     state : writing, 
                     composition : COMP?, 
                     assertions : CODE,
-                    output : getCompositionError(processConfig(T)),
                 ATTRS >
+                write(stdout, cliReader, getCompositionError(processConfig(getTerm(parseComposition(TEXT)))) + "\n")
+                debug(getCompositionError(processConfig(getTerm(parseComposition(TEXT)))))
             fi
+        else
+                --- TODO assertions attr
+            < cliReader : CliReader | 
+                state : writing, 
+                composition : COMP?, 
+                assertions : CODE,
+            ATTRS >
+            write(stdout, cliReader, formatErrorString(TEXT, parseComposition(TEXT)) + "\n")
+        fi
     .
 
 
@@ -238,7 +325,6 @@ mod CLI is
         composition : COMP, 
         counterexamplePath : TRACE?,
         counterexampleState : COUNTER,
-        output : QIL,
     ATTRS >
     => 
         if searchCounterexample(COMP, CODE ; EXPR) :: ResultTriple then
@@ -248,8 +334,8 @@ mod CLI is
                 composition : COMP, 
                 counterexamplePath : getCounterexamplePath(COMP, CODE ; EXPR),
                 counterexampleState : getTerm(searchCounterexample(COMP, CODE ; EXPR)),
-                output : ('Invalid!),
             ATTRS >
+            write(stdout, cliReader, "Invalid!\n")
         else
             < cliReader : CliReader | 
                 state : writing, 
@@ -257,8 +343,8 @@ mod CLI is
                 composition : COMP, 
                 counterexamplePath : TRACE?,
                 counterexampleState : COUNTER,
-                output : 'Valid!,
             ATTRS >
+            write(stdout, cliReader, "Valid!\n")
         fi
     .
 
@@ -268,7 +354,6 @@ mod CLI is
         composition : COMP,
         counterexamplePath : TRACE?,
         counterexampleState : COUNTER,
-        output : QIL,
     ATTRS >
     => 
         < cliReader : CliReader | 
@@ -277,28 +362,27 @@ mod CLI is
             composition : COMP,
             counterexamplePath : TRACE?,
             counterexampleState : COUNTER,
-            output : printEvalResult(evalStmt(CODE ; EXPR, toState(downTerm(COUNTER, none)))),
         ATTRS >
+        write(stdout, cliReader, printEvalResult(evalStmt(CODE ; EXPR, toState(downTerm(COUNTER, none)))) + "\n")
     .
 
     rl < cliReader : CliReader | 
         state : showingState,
         counterexampleState : COUNTER,
-        output : QIL,
     ATTRS >
     => 
         if COUNTER =/= noTerm then
             < cliReader : CliReader | 
                 state : writing, 
                 counterexampleState : COUNTER,
-                output : printAst(COUNTER),
             ATTRS >
+            write(stdout, cliReader, printAst(COUNTER) + "\n")
         else
             < cliReader : CliReader | 
                 state : writing,
                 counterexampleState : COUNTER,
-                output : ('Property '\s 'is '\s 'valid),
             ATTRS >
+            write(stdout, cliReader, "Property is valid (or no assertions were made). No state to show.\n")
         fi
     .
 
@@ -306,54 +390,86 @@ mod CLI is
         state : resetting, 
         assertions : CODE, 
         composition : COMP,
-        output : QIL,
     ATTRS >
     => < cliReader : CliReader | 
             state : writing, 
             assertions : pass, 
             composition : upTerm(initConfig),
-            output : ('Success),
         ATTRS >
+        write(stdout, cliReader, "Assertion code and composition model have been reset.\n")
     .
 
     rl < cliReader : CliReader | 
         state : resettingCode, 
         assertions : CODE,
-        output : QIL,
     ATTRS >
     => < cliReader : CliReader | 
             state : writing, 
             assertions : pass,
-            output : 'Success,
         ATTRS >
+        write(stdout, cliReader, "Assertion code has been reset.\n")
     .
 
     rl < cliReader : CliReader | 
         state : resettingModel,
         composition : COMP,
-        output : QIL,
     ATTRS >
     => < cliReader : CliReader | 
             state : writing,
             composition : upTerm(initConfig),
-            output : 'Success,
         ATTRS >
+        write(stdout, cliReader, "Composition model has been reset.\n")
     .
 
     rl < cliReader : CliReader | 
-        state : printingTrace,
-        output : QIL,
-        counterexamplePath : TRACE?,
-        counterexampleState : COUNTER,
+        state : printingTrace(S),
     ATTRS >
     =>
         < cliReader : CliReader | 
-            state : writing,
+            state : openningTraceFile(S),
+        ATTRS >
+        openFile(fileManager, cliReader, S, "w")
+    .
+
+    rl < cliReader : CliReader | 
+        state : openningTraceFile(S), 
+        counterexamplePath : TRACE?,
+        counterexampleState : COUNTER,
+    ATTRS >
+    openedFile(cliReader, fileManager, O)
+    =>
+        < cliReader : CliReader | 
+            state : writingToTraceFile(S, O), 
             counterexamplePath : TRACE?,
             counterexampleState : COUNTER,
-            output : printTrace(TRACE?, COUNTER),
         ATTRS >
+        debug( printTrace(TRACE?))
+        write(O, cliReader, printTrace(TRACE?, COUNTER))
     .
+
+
+    rl < cliReader : CliReader | 
+            state : writingToTraceFile(S, O),
+        ATTRS >
+        wrote(cliReader, O)
+    =>
+        < cliReader : CliReader | 
+            state : closingTraceFile(S, O),
+        ATTRS >
+        closeFile(O, cliReader)
+    .
+
+    rl < cliReader : CliReader | 
+            state : closingTraceFile(S, O),
+        ATTRS >
+        closedFile(cliReader, O)
+    =>
+        < cliReader : CliReader | 
+            state : writing,
+        ATTRS >
+        write(stdout, cliReader, "Trace has been printed.\n")
+    .
+
     
     rl < cliReader : CliReader | 
         state : simulating, 
@@ -371,40 +487,37 @@ mod CLI is
     rl < cliReader : CliReader | 
         state : printingSimulationResult,
         simulationResult : COMP?,
-        output : QIL,
     ATTRS >
     => 
     < cliReader : CliReader | 
         state : writing, 
         simulationResult : COMP?,
-        output : printAst(COMP?),
     ATTRS >
+    write(stdout, cliReader, printAst(COMP?) + "\n")
     .
 
     rl < cliReader : CliReader | 
         state : dumpingSimulationResult,
         simulationResult : COMP?,
-        output : QIL,
     ATTRS >
     => 
     < cliReader : CliReader | 
         state : writing, 
         simulationResult : COMP?,
-        output : dumpConfig(COMP?),
     ATTRS >
+    write(stdout, cliReader, dumpConfig(COMP?) + "\n")
     .
 
     rl < cliReader : CliReader | 
         state : dumpingLastState,
         counterexampleState : COMP?,
-        output : QIL,
     ATTRS >
     => 
     < cliReader : CliReader | 
         state : writing, 
         counterexampleState : COMP?,
-        output : dumpConfig(COMP?),
     ATTRS >
+    write(stdout, cliReader, dumpConfig(COMP?) + "\n")
     .
 
     var QIDList : QidList .
@@ -422,10 +535,7 @@ mod CLI is
         assertions : pass,
         counterexampleState : noTerm,
         counterexamplePath : nil,
-        simulationResult : noTerm,
-        stdio : true,
-        input : failure,
-        output : nil
+        simulationResult : noTerm
     > <> .
 endm
 
@@ -436,66 +546,49 @@ mod CLI-LOOP is
     subsort Object < State .
 
     op initLoop : -> System .
+    op LoopCLI : -> Cid .
+    op loopCli : -> Oid .
 
     rl [initLoop] :
      initLoop
      => [nil,
-        < cliReader : CliReader |
+        < loopCli : LoopCLI |
             state : idle, 
             composition : upTerm(initConfig), 
             assertions : pass,
             counterexampleState : noTerm,
             counterexamplePath : nil,
-            simulationResult : noTerm,
-            stdio : false,
-            input : failure,
-            output : nil
+            simulationResult : noTerm
         >,
          ('\n '\t '\s '\s '\s '\s '\s '\s '\s '\s '\s '\s 'WS '\s 'Verifier '\n)] .
 
 
     var Attrs : AttributeSet .
     var QI : Qid .
-    vars QIL QIL' QIL'' : QidList .
-    var O : Oid .
+    vars QIL QIL' : QidList .
+
     
     rl [in] :
     [QI QIL,
-     < O : CliReader |
-         input : failure, 
-         output : nil, 
-         state : idle,
-         Attrs 
-    >,
+     < O : X@DatabaseClass |
+         db : DB, input : nilTermList, output : nil, default : ME, Atts >,
      QIL']
-    =>  if parseCommand(QI QIL) :: ResultPair then
-            [nil,
-             < O : CliReader |
-                input : parseCommand(QI QIL),
-                output : nil,
-                state : reading,
-            Attrs >,
-            QIL']
-        else
-            [nil,
-             < O : CliReader |
-                input : failure,
-                output : formatErrorString(QI QIL, parseCommand(QI QIL)),
-                state : writing, 
-            Attrs >,
-            QIL'
-            ]
-        fi
-    .
-
-    rl [out] :
-    [QIL,
-     < O : CliReader | state : writing, output : (QI QIL'), Attrs >,
-     QIL'']
-    => [QIL,
-        < O : CliReader | state : idle, output : nil, Attrs >,
-        (QI QIL' QIL'')
-        ] .
+    => if metaParse(GRAMMAR, QI QIL, '@Input@) :: ResultPair
+       then [nil,
+             < O : X@DatabaseClass | db : DB,
+                 input : getTerm(metaParse(GRAMMAR, QI QIL, '@Input@)),
+                 output : nil, default : ME, Atts >,
+              QIL']
+       else [nil,
+             < O : X@DatabaseClass | db : DB, input : nilTermList,
+                 output : ('\r 'Warning:
+                           printSyntaxError(metaParse(GRAMMAR, QI QIL, '@Input@),
+                             QI QIL)
+                           '\n
+                           '\r 'Error: '\o 'No 'parse 'for 'input. '\n),
+                 default : ME, Atts >,
+             QIL']
+       fi .
     
 endm
 
@@ -799,7 +892,6 @@ mod TEST is
     eq as = call("assert", args(bool(false))) .
 endm
 
-select CLI-LOOP .
 --- red getLangProcessError(function(
 ---     "create", params(id("request")), assign(id("agreements"), call("getPersistent", args(str("aggreements")))) ; assign(id(
 ---     "aggreement"), dict(dictItem(id("id"), call("len", args(id("agreements")))),dictItem(id("correspondents"), processLang(

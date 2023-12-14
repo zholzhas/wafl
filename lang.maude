@@ -968,20 +968,21 @@ fmod LANG is
     var DICT DICT' : DictEntryListAST .
 
 
-    op getLangProcessError : AST ~> String .
+    op getLangProcessError : AST ~> QidList .
+    eq getLangProcessError(~CODE) = 'Language '\s 'Error .
     --- ceq getLangProcessError(~CODE) = "Unknown Language Parse Error" if not ~CODE :: AST .
-    ceq getLangProcessError(function(STR, PARAMS, ~CODE') ; ~CODE) = "Error in function " + STR + ": " + getLangProcessError(~CODE') if not ~CODE' :: AST .
-    ceq getLangProcessError(CODE ; ~CODE ; CODE') = getLangProcessError(~CODE) if not ~CODE :: AST and CODE =/= pass and CODE' =/= pass . 
+    --- ceq getLangProcessError(function(STR, PARAMS, ~CODE') ; ~CODE) = "Error in function " + STR + ": " + getLangProcessError(~CODE') if not ~CODE' :: AST .
+    --- ceq getLangProcessError(CODE ; ~CODE ; CODE') = getLangProcessError(~CODE) if not ~CODE :: AST and CODE =/= pass and CODE' =/= pass . 
 
-    ceq getLangProcessError(assign(EXPR, ~EXPR)) = "In assignment: " + getExprProcessError(~EXPR) if not ~EXPR :: ExprAST .
+    --- ceq getLangProcessError(assign(EXPR, ~EXPR)) = "In assignment: " + getExprProcessError(~EXPR) if not ~EXPR :: ExprAST .
 
-    op getExprProcessError : ExprAST ~> String .
-    ceq getExprProcessError(dict(~DICT)) = "In dictionary: " + getDictProcessError(~DICT) if not ~DICT :: DictEntryListAST .
-    ceq getExprProcessError(process('token[T])) = "Invalid token " + string(downTerm(T, '$err)) if not process('token[T]) :: AST .
+    --- op getExprProcessError : ExprAST ~> String .
+    --- ceq getExprProcessError(dict(~DICT)) = "In dictionary: " + getDictProcessError(~DICT) if not ~DICT :: DictEntryListAST .
+    --- ceq getExprProcessError(process('token[T])) = "Invalid token " + string(downTerm(T, '$err)) if not process('token[T]) :: AST .
 
-    op getDictProcessError : DictEntryListAST ~> String .
-    ceq getDictProcessError(DICT, ~DICT, DICT') = getDictProcessError(~DICT) if not ~DICT :: DictEntryListAST and DICT =/= emptyDict and DICT' =/= emptyDict .
-    ceq getDictProcessError(dictItem(id(STR), ~EXPR)) = "In field " + STR + ": " + getExprProcessError(~EXPR) if not ~EXPR :: ExprAST .
+    --- op getDictProcessError : DictEntryListAST ~> String .
+    --- ceq getDictProcessError(DICT, ~DICT, DICT') = getDictProcessError(~DICT) if not ~DICT :: DictEntryListAST and DICT =/= emptyDict and DICT' =/= emptyDict .
+    --- ceq getDictProcessError(dictItem(id(STR), ~EXPR)) = "In field " + STR + ": " + getExprProcessError(~EXPR) if not ~EXPR :: ExprAST .
 
 endfm
 

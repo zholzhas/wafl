@@ -1,13 +1,190 @@
-		     \||||||||||||||||||/
-		   --- Welcome to Maude ---
-		     /||||||||||||||||||\
-	    Maude 3.2.1 built: Feb 21 2022 18:21:17
-	     Copyright 1997-2022 SRI International
-		   Mon Oct 16 10:50:38 2023
-==========================================
-reduce in CLI : getCounterexamplePath(upTerm((none).Configuration), call(
-    "assert", args(bool(false)))) .
-rewrites: 120 in 10ms cpu (14ms real) (12000 rewrites/second)
-result Trace: (nil).Trace
+<>
+connectionManager(0)
+init(assign(id("user"), dict(dictItem(id("name"), str("newCompanyEmployee")))) ; assign(id("response"), call("request", args(str("newSystem"), str("/create"), dict(dictItem(id("user"), id("user")), dictItem(id("agreement"), dict(dictItem(id("correspondents"), list(str("companyA"), str("companyB"))))))))) ; assign(id("id"), member(id("response"), "id")) ; call("request", args(str("newSystem"), str("/send"), dict(dictItem(id("user"), id("user")), dictItem(id("id"), id("id"))))))
+initManager(0)
+service "newSystem" {
+	code {...}
+	routes {...}
+	persistent("agreements", list(nil))
+	persistent("correspondents", map(("comapnyB" |-> strVal("oldSystemB")[31m,[0m "companyA" |-> strVal("oldSystemA"))))
 
-Bye.
+}
+
+
+
+           vvvvvvvvvvvvv
+           vvvvvvvvvvvvv
+           vvvvvvvvvvvvv
+
+
+<>
+connectionManager(0)
+initManager(1)
+service "newSystem" {
+	code {...}
+	routes {...}
+	persistent("agreements", list(nil))
+	persistent("correspondents", map(("comapnyB" |-> strVal("oldSystemB")[31m,[0m "companyA" |-> strVal("oldSystemA"))))
+
+}
+service initId(0) {
+	process for init : [ language dispathed list(strVal("newSystem") strVal("/create") map(("agreement" |-> map("correspondents" |-> list(strVal("companyA") strVal("companyB")))[31m,[0m "user" |-> map("name" |-> strVal("newCompanyEmployee"))))) to channel connectionOut ]
+}
+
+
+
+           vvvvvvvvvvvvv
+           vvvvvvvvvvvvv
+           vvvvvvvvvvvvv
+
+
+<>
+connectionManager(0)
+initManager(1)
+service "newSystem" {
+	code {...}
+	routes {...}
+	persistent("agreements", list(nil))
+	persistent("correspondents", map(("comapnyB" |-> strVal("oldSystemB")[31m,[0m "companyA" |-> strVal("oldSystemA"))))
+
+}
+service initId(0) {
+	process for init : [ sent request to [newSystem @ /create] : 
+		map(("agreement" |-> map("correspondents" |-> list(strVal("companyA") strVal("companyB")))[31m,[0m "user" |-> map("name" |-> strVal("newCompanyEmployee")))) . ]
+}
+
+
+
+           vvvvvvvvvvvvv
+           vvvvvvvvvvvvv
+           vvvvvvvvvvvvv
+
+
+<>
+connectionManager(1)
+initManager(1)
+service "newSystem" {
+	code {...}
+	routes {...}
+	persistent("agreements", list(nil))
+	persistent("correspondents", map(("comapnyB" |-> strVal("oldSystemB")[31m,[0m "companyA" |-> strVal("oldSystemA"))))
+
+}
+service initId(0) {
+	process for init : [ waiting connection 0 ]
+}
+connection(0, initId(0), "newSystem", httpRequest("/create", map(("agreement" |-> map("correspondents" |-> list(strVal("companyA") strVal("companyB")))[31m,[0m "user" |-> map("name" |-> strVal("newCompanyEmployee"))))))
+
+
+
+           vvvvvvvvvvvvv
+           vvvvvvvvvvvvv
+           vvvvvvvvvvvvv
+
+
+<>
+connectionManager(1)
+initManager(1)
+service "newSystem" {
+	code {...}
+	routes {...}
+	persistent("agreements", list(nil))
+	persistent("correspondents", map(("comapnyB" |-> strVal("oldSystemB")[31m,[0m "companyA" |-> strVal("oldSystemA"))))
+	process for CONN : 0 | "/create" ~ map(("agreement" |-> map("correspondents" |-> list(strVal("companyA") strVal("companyB")))[31m,[0m "user" |-> map("name" |-> strVal("newCompanyEmployee")))) : [ ended execution ]
+
+}
+service initId(0) {
+	process for init : [ waiting connection 0 ]
+}
+
+
+
+           vvvvvvvvvvvvv
+           vvvvvvvvvvvvv
+           vvvvvvvvvvvvv
+
+
+<>
+connectionManager(1)
+initManager(1)
+service "newSystem" {
+	code {...}
+	routes {...}
+	persistent("agreements", list(nil))
+	persistent("correspondents", map(("comapnyB" |-> strVal("oldSystemB")[31m,[0m "companyA" |-> strVal("oldSystemA"))))
+	process for CONN : 0 | "/create" ~ map(("agreement" |-> map("correspondents" |-> list(strVal("companyA") strVal("companyB")))[31m,[0m "user" |-> map("name" |-> strVal("newCompanyEmployee")))) : [ language dispathed strVal("agreements") to channel getPersistentValue ]
+
+}
+service initId(0) {
+	process for init : [ waiting connection 0 ]
+}
+
+
+
+           vvvvvvvvvvvvv
+           vvvvvvvvvvvvv
+           vvvvvvvvvvvvv
+
+
+<>
+connectionManager(1)
+initManager(1)
+service "newSystem" {
+	code {...}
+	routes {...}
+	persistent("agreements", list(nil))
+	persistent("correspondents", map(("comapnyB" |-> strVal("oldSystemB")[31m,[0m "companyA" |-> strVal("oldSystemA"))))
+	process for CONN : 0 | "/create" ~ map(("agreement" |-> map("correspondents" |-> list(strVal("companyA") strVal("companyB")))[31m,[0m "user" |-> map("name" |-> strVal("newCompanyEmployee")))) : [ waiting for access to persistent value ]
+
+}
+service initId(0) {
+	process for init : [ waiting connection 0 ]
+}
+
+
+
+           vvvvvvvvvvvvv
+           vvvvvvvvvvvvv
+           vvvvvvvvvvvvv
+
+
+<>
+connectionManager(1)
+initManager(1)
+service "newSystem" {
+	code {...}
+	routes {...}
+	persistent("agreements", list(nil))
+	persistent("correspondents", map(("comapnyB" |-> strVal("oldSystemB")[31m,[0m "companyA" |-> strVal("oldSystemA"))))
+	process for CONN : 0 | "/create" ~ map(("agreement" |-> map("correspondents" |-> list(strVal("companyA") strVal("companyB")))[31m,[0m "user" |-> map("name" |-> strVal("newCompanyEmployee")))) : [ waiting for access to persistent value ]
+
+}
+service initId(0) {
+	process for init : [ waiting connection 0 ]
+}
+
+
+
+           vvvvvvvvvvvvv
+           vvvvvvvvvvvvv
+           vvvvvvvvvvvvv
+
+
+END OF TRACE
+
+
+
+<>
+connectionManager(1)
+initManager(1)
+service "newSystem" {
+	code {...}
+	routes {...}
+	persistent("agreements", list(nil))
+	persistent("correspondents", map(("comapnyB" |-> strVal("oldSystemB")[31m,[0m "companyA" |-> strVal("oldSystemA"))))
+	process for CONN : 0 | "/create" ~ map(("agreement" |-> map("correspondents" |-> list(strVal("companyA") strVal("companyB")))[31m,[0m "user" |-> map("name" |-> strVal("newCompanyEmployee")))) : [ 		< executor : Executor | currentResult : evalStmt(assign(id("agreements"), call("append", args(id("agreements"), id("agreement")))) ; call("setPersistent", args(str("agreements"), id("agreements"))) ; call("respond", args(id("agreement"))), getState(evalAssign(id("agreement"),{dictVal(getDict(getValue({dictVal(getDict(getValue(evalExpr(dict(dictItem(id("signs"), list(empty)), dictItem(id("status"), str("created"))),[[34mfunc[34m([34m"create"[34m,[34m params(id("request"))[34m,[34m assign(id("agreements"), call("getPersistent", args(str("agreements")))) ; assign(id("agreement"), dict(dictItem(id("id"), call("len", args(id("agreements")))), dictItem(id("correspondents"), member(member(id("request"), "aggreement"), "correspondents")), dictItem(id("signs"), list(empty)), dictItem(id("status"), str("created")))) ; assign(id("agreements"), call("append", args(id("agreements"), id("agreement")))) ; call("setPersistent", args(str("agreements"), id("agreements"))) ; call("respond", args(id("agreement")))[34m)[0m ;[34m func[34m([34m"getPersistent"[34m,[34m params(id("key"))[34m,[34m $dispatch(id("key"), getPersistentValue) ; $lock(id("res"), getPersistentValue) ; return(id("res"))[34m)[0m ;[34m func[34m([34m"request"[34m,[34m params(id("svc"), id("path"), id("payload"))[34m,[34m $dispatch(list(id("svc"), id("path"), id("payload")), connectionOut) ; $lock(id("res"), connectionOut) ; return(id("res"))[34m)[0m ;[34m func[34m([34m"respond"[34m,[34m params(id("value"))[34m,[34m $dispatch(id("value"), connectionIn)[34m)[0m ;[34m func[34m([34m"setPersistent"[34m,[34m params(id("key"), id("value"))[34m,[34m $dispatch(list(id("key"), id("value")), setPersistentValue) ; $lock(id("res"), setPersistentValue)[34m)[0m | "agreements" := 9 ; "request" := 6 | pushStack(getValue(evalExpr(member(member(id("request"), "aggreement"), "correspondents"),[[34mfunc[34m([34m"create"[34m,[34m params(id("request"))[34m,[34m assign(id("agreements"), call("getPersistent", args(str("agreements")))) ; assign(id("agreement"), dict(dictItem(id("id"), call("len", args(id("agreements")))), dictItem(id("correspondents"), member(member(id("request"), "aggreement"), "correspondents")), dictItem(id("signs"), list(empty)), dictItem(id("status"), str("created")))) ; assign(id("agreements"), call("append", args(id("agreements"), id("agreement")))) ; call("setPersistent", args(str("agreements"), id("agreements"))) ; call("respond", args(id("agreement")))[34m)[0m ;[34m func[34m([34m"getPersistent"[34m,[34m params(id("key"))[34m,[34m $dispatch(id("key"), getPersistentValue) ; $lock(id("res"), getPersistentValue) ; return(id("res"))[34m)[0m ;[34m func[34m([34m"request"[34m,[34m params(id("svc"), id("path"), id("payload"))[34m,[34m $dispatch(list(id("svc"), id("path"), id("payload")), connectionOut) ; $lock(id("res"), connectionOut) ; return(id("res"))[34m)[0m ;[34m func[34m([34m"respond"[34m,[34m params(id("value"))[34m,[34m $dispatch(id("value"), connectionIn)[34m)[0m ;[34m func[34m([34m"setPersistent"[34m,[34m params(id("key"), id("value"))[34m,[34m $dispatch(list(id("key"), id("value")), setPersistentValue) ; $lock(id("res"), setPersistentValue)[34m)[0m | "agreements" := 9 ; "request" := 6 | stack(11, 0 |-> strVal("companyA")[31m ;[0m 1 |-> strVal("companyB")[31m ;[0m 2 |-> listVal(0, 1)[31m ;[0m 3 |-> dictVal(d("correspondents", 2))[31m ;[0m 4 |-> strVal("newCompanyEmployee")[31m ;[0m 5 |-> dictVal(d("name", 4))[31m ;[0m 6 |-> dictVal(d("agreement", 3) ; d("user", 5))[31m ;[0m 7 |-> strVal("agreements")[31m ;[0m 8 |-> listVal(emptyList)[31m ;[0m 9 |-> listVal(emptyList)[31m ;[0m 10 |-> intVal(0))])), getStack(getState(evalExpr(member(member(id("request"), "aggreement"), "correspondents"),[[34mfunc[34m([34m"create"[34m,[34m params(id("request"))[34m,[34m assign(id("agreements"), call("getPersistent", args(str("agreements")))) ; assign(id("agreement"), dict(dictItem(id("id"), call("len", args(id("agreements")))), dictItem(id("correspondents"), member(member(id("request"), "aggreement"), "correspondents")), dictItem(id("signs"), list(empty)), dictItem(id("status"), str("created")))) ; assign(id("agreements"), call("append", args(id("agreements"), id("agreement")))) ; call("setPersistent", args(str("agreements"), id("agreements"))) ; call("respond", args(id("agreement")))[34m)[0m ;[34m func[34m([34m"getPersistent"[34m,[34m params(id("key"))[34m,[34m $dispatch(id("key"), getPersistentValue) ; $lock(id("res"), getPersistentValue) ; return(id("res"))[34m)[0m ;[34m func[34m([34m"request"[34m,[34m params(id("svc"), id("path"), id("payload"))[34m,[34m $dispatch(list(id("svc"), id("path"), id("payload")), connectionOut) ; $lock(id("res"), connectionOut) ; return(id("res"))[34m)[0m ;[34m func[34m([34m"respond"[34m,[34m params(id("value"))[34m,[34m $dispatch(id("value"), connectionIn)[34m)[0m ;[34m func[34m([34m"setPersistent"[34m,[34m params(id("key"), id("value"))[34m,[34m $dispatch(list(id("key"), id("value")), setPersistentValue) ; $lock(id("res"), setPersistentValue)[34m)[0m | "agreements" := 9 ; "request" := 6 | stack(11, 0 |-> strVal("companyA")[31m ;[0m 1 |-> strVal("companyB")[31m ;[0m 2 |-> listVal(0, 1)[31m ;[0m 3 |-> dictVal(d("correspondents", 2))[31m ;[0m 4 |-> strVal("newCompanyEmployee")[31m ;[0m 5 |-> dictVal(d("name", 4))[31m ;[0m 6 |-> dictVal(d("agreement", 3) ; d("user", 5))[31m ;[0m 7 |-> strVal("agreements")[31m ;[0m 8 |-> listVal(emptyList)[31m ;[0m 9 |-> listVal(emptyList)[31m ;[0m 10 |-> intVal(0))]))))]))) ; d("correspondents", lastIndex(getStack(getState(evalExpr(member(member(id("request"), "aggreement"), "correspondents"),[[34mfunc[34m([34m"create"[34m,[34m params(id("request"))[34m,[34m assign(id("agreements"), call("getPersistent", args(str("agreements")))) ; assign(id("agreement"), dict(dictItem(id("id"), call("len", args(id("agreements")))), dictItem(id("correspondents"), member(member(id("request"), "aggreement"), "correspondents")), dictItem(id("signs"), list(empty)), dictItem(id("status"), str("created")))) ; assign(id("agreements"), call("append", args(id("agreements"), id("agreement")))) ; call("setPersistent", args(str("agreements"), id("agreements"))) ; call("respond", args(id("agreement")))[34m)[0m ;[34m func[34m([34m"getPersistent"[34m,[34m params(id("key"))[34m,[34m $dispatch(id("key"), getPersistentValue) ; $lock(id("res"), getPersistentValue) ; return(id("res"))[34m)[0m ;[34m func[34m([34m"request"[34m,[34m params(id("svc"), id("path"), id("payload"))[34m,[34m $dispatch(list(id("svc"), id("path"), id("payload")), connectionOut) ; $lock(id("res"), connectionOut) ; return(id("res"))[34m)[0m ;[34m func[34m([34m"respond"[34m,[34m params(id("value"))[34m,[34m $dispatch(id("value"), connectionIn)[34m)[0m ;[34m func[34m([34m"setPersistent"[34m,[34m params(id("key"), id("value"))[34m,[34m $dispatch(list(id("key"), id("value")), setPersistentValue) ; $lock(id("res"), setPersistentValue)[34m)[0m | "agreements" := 9 ; "request" := 6 | stack(11, 0 |-> strVal("companyA")[31m ;[0m 1 |-> strVal("companyB")[31m ;[0m 2 |-> listVal(0, 1)[31m ;[0m 3 |-> dictVal(d("correspondents", 2))[31m ;[0m 4 |-> strVal("newCompanyEmployee")[31m ;[0m 5 |-> dictVal(d("name", 4))[31m ;[0m 6 |-> dictVal(d("agreement", 3) ; d("user", 5))[31m ;[0m 7 |-> strVal("agreements")[31m ;[0m 8 |-> listVal(emptyList)[31m ;[0m 9 |-> listVal(emptyList)[31m ;[0m 10 |-> intVal(0))])))))), getState(evalExpr(dict(dictItem(id("signs"), list(empty)), dictItem(id("status"), str("created"))),[[34mfunc[34m([34m"create"[34m,[34m params(id("request"))[34m,[34m assign(id("agreements"), call("getPersistent", args(str("agreements")))) ; assign(id("agreement"), dict(dictItem(id("id"), call("len", args(id("agreements")))), dictItem(id("correspondents"), member(member(id("request"), "aggreement"), "correspondents")), dictItem(id("signs"), list(empty)), dictItem(id("status"), str("created")))) ; assign(id("agreements"), call("append", args(id("agreements"), id("agreement")))) ; call("setPersistent", args(str("agreements"), id("agreements"))) ; call("respond", args(id("agreement")))[34m)[0m ;[34m func[34m([34m"getPersistent"[34m,[34m params(id("key"))[34m,[34m $dispatch(id("key"), getPersistentValue) ; $lock(id("res"), getPersistentValue) ; return(id("res"))[34m)[0m ;[34m func[34m([34m"request"[34m,[34m params(id("svc"), id("path"), id("payload"))[34m,[34m $dispatch(list(id("svc"), id("path"), id("payload")), connectionOut) ; $lock(id("res"), connectionOut) ; return(id("res"))[34m)[0m ;[34m func[34m([34m"respond"[34m,[34m params(id("value"))[34m,[34m $dispatch(id("value"), connectionIn)[34m)[0m ;[34m func[34m([34m"setPersistent"[34m,[34m params(id("key"), id("value"))[34m,[34m $dispatch(list(id("key"), id("value")), setPersistentValue) ; $lock(id("res"), setPersistentValue)[34m)[0m | "agreements" := 9 ; "request" := 6 | pushStack(getValue(evalExpr(member(member(id("request"), "aggreement"), "correspondents"),[[34mfunc[34m([34m"create"[34m,[34m params(id("request"))[34m,[34m assign(id("agreements"), call("getPersistent", args(str("agreements")))) ; assign(id("agreement"), dict(dictItem(id("id"), call("len", args(id("agreements")))), dictItem(id("correspondents"), member(member(id("request"), "aggreement"), "correspondents")), dictItem(id("signs"), list(empty)), dictItem(id("status"), str("created")))) ; assign(id("agreements"), call("append", args(id("agreements"), id("agreement")))) ; call("setPersistent", args(str("agreements"), id("agreements"))) ; call("respond", args(id("agreement")))[34m)[0m ;[34m func[34m([34m"getPersistent"[34m,[34m params(id("key"))[34m,[34m $dispatch(id("key"), getPersistentValue) ; $lock(id("res"), getPersistentValue) ; return(id("res"))[34m)[0m ;[34m func[34m([34m"request"[34m,[34m params(id("svc"), id("path"), id("payload"))[34m,[34m $dispatch(list(id("svc"), id("path"), id("payload")), connectionOut) ; $lock(id("res"), connectionOut) ; return(id("res"))[34m)[0m ;[34m func[34m([34m"respond"[34m,[34m params(id("value"))[34m,[34m $dispatch(id("value"), connectionIn)[34m)[0m ;[34m func[34m([34m"setPersistent"[34m,[34m params(id("key"), id("value"))[34m,[34m $dispatch(list(id("key"), id("value")), setPersistentValue) ; $lock(id("res"), setPersistentValue)[34m)[0m | "agreements" := 9 ; "request" := 6 | stack(11, 0 |-> strVal("companyA")[31m ;[0m 1 |-> strVal("companyB")[31m ;[0m 2 |-> listVal(0, 1)[31m ;[0m 3 |-> dictVal(d("correspondents", 2))[31m ;[0m 4 |-> strVal("newCompanyEmployee")[31m ;[0m 5 |-> dictVal(d("name", 4))[31m ;[0m 6 |-> dictVal(d("agreement", 3) ; d("user", 5))[31m ;[0m 7 |-> strVal("agreements")[31m ;[0m 8 |-> listVal(emptyList)[31m ;[0m 9 |-> listVal(emptyList)[31m ;[0m 10 |-> intVal(0))])), getStack(getState(evalExpr(member(member(id("request"), "aggreement"), "correspondents"),[[34mfunc[34m([34m"create"[34m,[34m params(id("request"))[34m,[34m assign(id("agreements"), call("getPersistent", args(str("agreements")))) ; assign(id("agreement"), dict(dictItem(id("id"), call("len", args(id("agreements")))), dictItem(id("correspondents"), member(member(id("request"), "aggreement"), "correspondents")), dictItem(id("signs"), list(empty)), dictItem(id("status"), str("created")))) ; assign(id("agreements"), call("append", args(id("agreements"), id("agreement")))) ; call("setPersistent", args(str("agreements"), id("agreements"))) ; call("respond", args(id("agreement")))[34m)[0m ;[34m func[34m([34m"getPersistent"[34m,[34m params(id("key"))[34m,[34m $dispatch(id("key"), getPersistentValue) ; $lock(id("res"), getPersistentValue) ; return(id("res"))[34m)[0m ;[34m func[34m([34m"request"[34m,[34m params(id("svc"), id("path"), id("payload"))[34m,[34m $dispatch(list(id("svc"), id("path"), id("payload")), connectionOut) ; $lock(id("res"), connectionOut) ; return(id("res"))[34m)[0m ;[34m func[34m([34m"respond"[34m,[34m params(id("value"))[34m,[34m $dispatch(id("value"), connectionIn)[34m)[0m ;[34m func[34m([34m"setPersistent"[34m,[34m params(id("key"), id("value"))[34m,[34m $dispatch(list(id("key"), id("value")), setPersistentValue) ; $lock(id("res"), setPersistentValue)[34m)[0m | "agreements" := 9 ; "request" := 6 | stack(11, 0 |-> strVal("companyA")[31m ;[0m 1 |-> strVal("companyB")[31m ;[0m 2 |-> listVal(0, 1)[31m ;[0m 3 |-> dictVal(d("correspondents", 2))[31m ;[0m 4 |-> strVal("newCompanyEmployee")[31m ;[0m 5 |-> dictVal(d("name", 4))[31m ;[0m 6 |-> dictVal(d("agreement", 3) ; d("user", 5))[31m ;[0m 7 |-> strVal("agreements")[31m ;[0m 8 |-> listVal(emptyList)[31m ;[0m 9 |-> listVal(emptyList)[31m ;[0m 10 |-> intVal(0))]))))]))})) ; d("id", 10)), getState({dictVal(getDict(getValue(evalExpr(dict(dictItem(id("signs"), list(empty)), dictItem(id("status"), str("created"))),[[34mfunc[34m([34m"create"[34m,[34m params(id("request"))[34m,[34m assign(id("agreements"), call("getPersistent", args(str("agreements")))) ; assign(id("agreement"), dict(dictItem(id("id"), call("len", args(id("agreements")))), dictItem(id("correspondents"), member(member(id("request"), "aggreement"), "correspondents")), dictItem(id("signs"), list(empty)), dictItem(id("status"), str("created")))) ; assign(id("agreements"), call("append", args(id("agreements"), id("agreement")))) ; call("setPersistent", args(str("agreements"), id("agreements"))) ; call("respond", args(id("agreement")))[34m)[0m ;[34m func[34m([34m"getPersistent"[34m,[34m params(id("key"))[34m,[34m $dispatch(id("key"), getPersistentValue) ; $lock(id("res"), getPersistentValue) ; return(id("res"))[34m)[0m ;[34m func[34m([34m"request"[34m,[34m params(id("svc"), id("path"), id("payload"))[34m,[34m $dispatch(list(id("svc"), id("path"), id("payload")), connectionOut) ; $lock(id("res"), connectionOut) ; return(id("res"))[34m)[0m ;[34m func[34m([34m"respond"[34m,[34m params(id("value"))[34m,[34m $dispatch(id("value"), connectionIn)[34m)[0m ;[34m func[34m([34m"setPersistent"[34m,[34m params(id("key"), id("value"))[34m,[34m $dispatch(list(id("key"), id("value")), setPersistentValue) ; $lock(id("res"), setPersistentValue)[34m)[0m | "agreements" := 9 ; "request" := 6 | pushStack(getValue(evalExpr(member(member(id("request"), "aggreement"), "correspondents"),[[34mfunc[34m([34m"create"[34m,[34m params(id("request"))[34m,[34m assign(id("agreements"), call("getPersistent", args(str("agreements")))) ; assign(id("agreement"), dict(dictItem(id("id"), call("len", args(id("agreements")))), dictItem(id("correspondents"), member(member(id("request"), "aggreement"), "correspondents")), dictItem(id("signs"), list(empty)), dictItem(id("status"), str("created")))) ; assign(id("agreements"), call("append", args(id("agreements"), id("agreement")))) ; call("setPersistent", args(str("agreements"), id("agreements"))) ; call("respond", args(id("agreement")))[34m)[0m ;[34m func[34m([34m"getPersistent"[34m,[34m params(id("key"))[34m,[34m $dispatch(id("key"), getPersistentValue) ; $lock(id("res"), getPersistentValue) ; return(id("res"))[34m)[0m ;[34m func[34m([34m"request"[34m,[34m params(id("svc"), id("path"), id("payload"))[34m,[34m $dispatch(list(id("svc"), id("path"), id("payload")), connectionOut) ; $lock(id("res"), connectionOut) ; return(id("res"))[34m)[0m ;[34m func[34m([34m"respond"[34m,[34m params(id("value"))[34m,[34m $dispatch(id("value"), connectionIn)[34m)[0m ;[34m func[34m([34m"setPersistent"[34m,[34m params(id("key"), id("value"))[34m,[34m $dispatch(list(id("key"), id("value")), setPersistentValue) ; $lock(id("res"), setPersistentValue)[34m)[0m | "agreements" := 9 ; "request" := 6 | stack(11, 0 |-> strVal("companyA")[31m ;[0m 1 |-> strVal("companyB")[31m ;[0m 2 |-> listVal(0, 1)[31m ;[0m 3 |-> dictVal(d("correspondents", 2))[31m ;[0m 4 |-> strVal("newCompanyEmployee")[31m ;[0m 5 |-> dictVal(d("name", 4))[31m ;[0m 6 |-> dictVal(d("agreement", 3) ; d("user", 5))[31m ;[0m 7 |-> strVal("agreements")[31m ;[0m 8 |-> listVal(emptyList)[31m ;[0m 9 |-> listVal(emptyList)[31m ;[0m 10 |-> intVal(0))])), getStack(getState(evalExpr(member(member(id("request"), "aggreement"), "correspondents"),[[34mfunc[34m([34m"create"[34m,[34m params(id("request"))[34m,[34m assign(id("agreements"), call("getPersistent", args(str("agreements")))) ; assign(id("agreement"), dict(dictItem(id("id"), call("len", args(id("agreements")))), dictItem(id("correspondents"), member(member(id("request"), "aggreement"), "correspondents")), dictItem(id("signs"), list(empty)), dictItem(id("status"), str("created")))) ; assign(id("agreements"), call("append", args(id("agreements"), id("agreement")))) ; call("setPersistent", args(str("agreements"), id("agreements"))) ; call("respond", args(id("agreement")))[34m)[0m ;[34m func[34m([34m"getPersistent"[34m,[34m params(id("key"))[34m,[34m $dispatch(id("key"), getPersistentValue) ; $lock(id("res"), getPersistentValue) ; return(id("res"))[34m)[0m ;[34m func[34m([34m"request"[34m,[34m params(id("svc"), id("path"), id("payload"))[34m,[34m $dispatch(list(id("svc"), id("path"), id("payload")), connectionOut) ; $lock(id("res"), connectionOut) ; return(id("res"))[34m)[0m ;[34m func[34m([34m"respond"[34m,[34m params(id("value"))[34m,[34m $dispatch(id("value"), connectionIn)[34m)[0m ;[34m func[34m([34m"setPersistent"[34m,[34m params(id("key"), id("value"))[34m,[34m $dispatch(list(id("key"), id("value")), setPersistentValue) ; $lock(id("res"), setPersistentValue)[34m)[0m | "agreements" := 9 ; "request" := 6 | stack(11, 0 |-> strVal("companyA")[31m ;[0m 1 |-> strVal("companyB")[31m ;[0m 2 |-> listVal(0, 1)[31m ;[0m 3 |-> dictVal(d("correspondents", 2))[31m ;[0m 4 |-> strVal("newCompanyEmployee")[31m ;[0m 5 |-> dictVal(d("name", 4))[31m ;[0m 6 |-> dictVal(d("agreement", 3) ; d("user", 5))[31m ;[0m 7 |-> strVal("agreements")[31m ;[0m 8 |-> listVal(emptyList)[31m ;[0m 9 |-> listVal(emptyList)[31m ;[0m 10 |-> intVal(0))]))))]))) ; d("correspondents", lastIndex(getStack(getState(evalExpr(member(member(id("request"), "aggreement"), "correspondents"),[[34mfunc[34m([34m"create"[34m,[34m params(id("request"))[34m,[34m assign(id("agreements"), call("getPersistent", args(str("agreements")))) ; assign(id("agreement"), dict(dictItem(id("id"), call("len", args(id("agreements")))), dictItem(id("correspondents"), member(member(id("request"), "aggreement"), "correspondents")), dictItem(id("signs"), list(empty)), dictItem(id("status"), str("created")))) ; assign(id("agreements"), call("append", args(id("agreements"), id("agreement")))) ; call("setPersistent", args(str("agreements"), id("agreements"))) ; call("respond", args(id("agreement")))[34m)[0m ;[34m func[34m([34m"getPersistent"[34m,[34m params(id("key"))[34m,[34m $dispatch(id("key"), getPersistentValue) ; $lock(id("res"), getPersistentValue) ; return(id("res"))[34m)[0m ;[34m func[34m([34m"request"[34m,[34m params(id("svc"), id("path"), id("payload"))[34m,[34m $dispatch(list(id("svc"), id("path"), id("payload")), connectionOut) ; $lock(id("res"), connectionOut) ; return(id("res"))[34m)[0m ;[34m func[34m([34m"respond"[34m,[34m params(id("value"))[34m,[34m $dispatch(id("value"), connectionIn)[34m)[0m ;[34m func[34m([34m"setPersistent"[34m,[34m params(id("key"), id("value"))[34m,[34m $dispatch(list(id("key"), id("value")), setPersistentValue) ; $lock(id("res"), setPersistentValue)[34m)[0m | "agreements" := 9 ; "request" := 6 | stack(11, 0 |-> strVal("companyA")[31m ;[0m 1 |-> strVal("companyB")[31m ;[0m 2 |-> listVal(0, 1)[31m ;[0m 3 |-> dictVal(d("correspondents", 2))[31m ;[0m 4 |-> strVal("newCompanyEmployee")[31m ;[0m 5 |-> dictVal(d("name", 4))[31m ;[0m 6 |-> dictVal(d("agreement", 3) ; d("user", 5))[31m ;[0m 7 |-> strVal("agreements")[31m ;[0m 8 |-> listVal(emptyList)[31m ;[0m 9 |-> listVal(emptyList)[31m ;[0m 10 |-> intVal(0))])))))), getState(evalExpr(dict(dictItem(id("signs"), list(empty)), dictItem(id("status"), str("created"))),[[34mfunc[34m([34m"create"[34m,[34m params(id("request"))[34m,[34m assign(id("agreements"), call("getPersistent", args(str("agreements")))) ; assign(id("agreement"), dict(dictItem(id("id"), call("len", args(id("agreements")))), dictItem(id("correspondents"), member(member(id("request"), "aggreement"), "correspondents")), dictItem(id("signs"), list(empty)), dictItem(id("status"), str("created")))) ; assign(id("agreements"), call("append", args(id("agreements"), id("agreement")))) ; call("setPersistent", args(str("agreements"), id("agreements"))) ; call("respond", args(id("agreement")))[34m)[0m ;[34m func[34m([34m"getPersistent"[34m,[34m params(id("key"))[34m,[34m $dispatch(id("key"), getPersistentValue) ; $lock(id("res"), getPersistentValue) ; return(id("res"))[34m)[0m ;[34m func[34m([34m"request"[34m,[34m params(id("svc"), id("path"), id("payload"))[34m,[34m $dispatch(list(id("svc"), id("path"), id("payload")), connectionOut) ; $lock(id("res"), connectionOut) ; return(id("res"))[34m)[0m ;[34m func[34m([34m"respond"[34m,[34m params(id("value"))[34m,[34m $dispatch(id("value"), connectionIn)[34m)[0m ;[34m func[34m([34m"setPersistent"[34m,[34m params(id("key"), id("value"))[34m,[34m $dispatch(list(id("key"), id("value")), setPersistentValue) ; $lock(id("res"), setPersistentValue)[34m)[0m | "agreements" := 9 ; "request" := 6 | pushStack(getValue(evalExpr(member(member(id("request"), "aggreement"), "correspondents"),[[34mfunc[34m([34m"create"[34m,[34m params(id("request"))[34m,[34m assign(id("agreements"), call("getPersistent", args(str("agreements")))) ; assign(id("agreement"), dict(dictItem(id("id"), call("len", args(id("agreements")))), dictItem(id("correspondents"), member(member(id("request"), "aggreement"), "correspondents")), dictItem(id("signs"), list(empty)), dictItem(id("status"), str("created")))) ; assign(id("agreements"), call("append", args(id("agreements"), id("agreement")))) ; call("setPersistent", args(str("agreements"), id("agreements"))) ; call("respond", args(id("agreement")))[34m)[0m ;[34m func[34m([34m"getPersistent"[34m,[34m params(id("key"))[34m,[34m $dispatch(id("key"), getPersistentValue) ; $lock(id("res"), getPersistentValue) ; return(id("res"))[34m)[0m ;[34m func[34m([34m"request"[34m,[34m params(id("svc"), id("path"), id("payload"))[34m,[34m $dispatch(list(id("svc"), id("path"), id("payload")), connectionOut) ; $lock(id("res"), connectionOut) ; return(id("res"))[34m)[0m ;[34m func[34m([34m"respond"[34m,[34m params(id("value"))[34m,[34m $dispatch(id("value"), connectionIn)[34m)[0m ;[34m func[34m([34m"setPersistent"[34m,[34m params(id("key"), id("value"))[34m,[34m $dispatch(list(id("key"), id("value")), setPersistentValue) ; $lock(id("res"), setPersistentValue)[34m)[0m | "agreements" := 9 ; "request" := 6 | stack(11, 0 |-> strVal("companyA")[31m ;[0m 1 |-> strVal("companyB")[31m ;[0m 2 |-> listVal(0, 1)[31m ;[0m 3 |-> dictVal(d("correspondents", 2))[31m ;[0m 4 |-> strVal("newCompanyEmployee")[31m ;[0m 5 |-> dictVal(d("name", 4))[31m ;[0m 6 |-> dictVal(d("agreement", 3) ; d("user", 5))[31m ;[0m 7 |-> strVal("agreements")[31m ;[0m 8 |-> listVal(emptyList)[31m ;[0m 9 |-> listVal(emptyList)[31m ;[0m 10 |-> intVal(0))])), getStack(getState(evalExpr(member(member(id("request"), "aggreement"), "correspondents"),[[34mfunc[34m([34m"create"[34m,[34m params(id("request"))[34m,[34m assign(id("agreements"), call("getPersistent", args(str("agreements")))) ; assign(id("agreement"), dict(dictItem(id("id"), call("len", args(id("agreements")))), dictItem(id("correspondents"), member(member(id("request"), "aggreement"), "correspondents")), dictItem(id("signs"), list(empty)), dictItem(id("status"), str("created")))) ; assign(id("agreements"), call("append", args(id("agreements"), id("agreement")))) ; call("setPersistent", args(str("agreements"), id("agreements"))) ; call("respond", args(id("agreement")))[34m)[0m ;[34m func[34m([34m"getPersistent"[34m,[34m params(id("key"))[34m,[34m $dispatch(id("key"), getPersistentValue) ; $lock(id("res"), getPersistentValue) ; return(id("res"))[34m)[0m ;[34m func[34m([34m"request"[34m,[34m params(id("svc"), id("path"), id("payload"))[34m,[34m $dispatch(list(id("svc"), id("path"), id("payload")), connectionOut) ; $lock(id("res"), connectionOut) ; return(id("res"))[34m)[0m ;[34m func[34m([34m"respond"[34m,[34m params(id("value"))[34m,[34m $dispatch(id("value"), connectionIn)[34m)[0m ;[34m func[34m([34m"setPersistent"[34m,[34m params(id("key"), id("value"))[34m,[34m $dispatch(list(id("key"), id("value")), setPersistentValue) ; $lock(id("res"), setPersistentValue)[34m)[0m | "agreements" := 9 ; "request" := 6 | stack(11, 0 |-> strVal("companyA")[31m ;[0m 1 |-> strVal("companyB")[31m ;[0m 2 |-> listVal(0, 1)[31m ;[0m 3 |-> dictVal(d("correspondents", 2))[31m ;[0m 4 |-> strVal("newCompanyEmployee")[31m ;[0m 5 |-> dictVal(d("name", 4))[31m ;[0m 6 |-> dictVal(d("agreement", 3) ; d("user", 5))[31m ;[0m 7 |-> strVal("agreements")[31m ;[0m 8 |-> listVal(emptyList)[31m ;[0m 9 |-> listVal(emptyList)[31m ;[0m 10 |-> intVal(0))]))))]))})}))), initialState :([[34mfunc[34m([34m"create"[34m,[34m params(id("request"))[34m,[34m assign(id("agreements"), call("getPersistent", args(str("agreements")))) ; assign(id("agreement"), dict(dictItem(id("id"), call("len", args(id("agreements")))), dictItem(id("correspondents"), member(member(id("request"), "aggreement"), "correspondents")), dictItem(id("signs"), list(empty)), dictItem(id("status"), str("created")))) ; assign(id("agreements"), call("append", args(id("agreements"), id("agreement")))) ; call("setPersistent", args(str("agreements"), id("agreements"))) ; call("respond", args(id("agreement")))[34m)[0m ;[34m func[34m([34m"getPersistent"[34m,[34m params(id("key"))[34m,[34m $dispatch(id("key"), getPersistentValue) ; $lock(id("res"), getPersistentValue) ; return(id("res"))[34m)[0m ;[34m func[34m([34m"request"[34m,[34m params(id("svc"), id("path"), id("payload"))[34m,[34m $dispatch(list(id("svc"), id("path"), id("payload")), connectionOut) ; $lock(id("res"), connectionOut) ; return(id("res"))[34m)[0m ;[34m func[34m([34m"respond"[34m,[34m params(id("value"))[34m,[34m $dispatch(id("value"), connectionIn)[34m)[0m ;[34m func[34m([34m"setPersistent"[34m,[34m params(id("key"), id("value"))[34m,[34m $dispatch(list(id("key"), id("value")), setPersistentValue) ; $lock(id("res"), setPersistentValue)[34m)[0m | empty | stack(6, 0 |-> strVal("companyA")[31m ;[0m 1 |-> strVal("companyB")[31m ;[0m 2 |-> listVal(0, 1)[31m ;[0m 3 |-> dictVal(d("correspondents", 2))[31m ;[0m 4 |-> strVal("newCompanyEmployee")[31m ;[0m 5 |-> dictVal(d("name", 4)))]), waiting : none > ]
+
+}
+service initId(0) {
+	process for init : [ waiting connection 0 ]
+}
