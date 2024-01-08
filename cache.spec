@@ -1,3 +1,4 @@
+(
 service backend {
     code {
         function addFavorite(request) {
@@ -119,3 +120,10 @@ init {
 init {
     request("cache", "flush", {}) ;
 }
+
+props {
+    function test() {
+        assert(len(services . db . persistents . favorites) < 1) ;
+    }
+}
+)

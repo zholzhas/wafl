@@ -689,13 +689,16 @@ mod COMPOSITION-TO-LANGUAGE is
                 id("connections"),
                 getState(toVal(connectionToIOVal(CONN), St))
             ))), 
-            listVal(getList(getStackValue(getRef(getValue(evalRefExpr(
-                id("connections"),
-                getState(toVal(connectionToIOVal(CONN), St))
-            ))), getState(evalRefExpr(
-                id("connections"),
-                getState(toVal(connectionToIOVal(CONN), St))
-            )))), lastIndex(getStack(getState(toVal(connectionToIOVal(CONN), St))))), 
+            listVal(
+                getList(getStackValue(getRef(getValue(evalRefExpr(
+                    id("connections"),
+                    getState(toVal(connectionToIOVal(CONN), St))
+                ))), getState(evalRefExpr(
+                    id("connections"),
+                    getState(toVal(connectionToIOVal(CONN), St))
+                )))), 
+                lastIndex(getStack(getState(toVal(connectionToIOVal(CONN), St))))
+            ), 
             pushStack(
                 getValue(toVal(connectionToIOVal(CONN), St)),
                 getState(toVal(connectionToIOVal(CONN), St))
@@ -816,7 +819,8 @@ mod COMPOSITION-PREDS is
     including (SATISFACTION + LTL + MODEL-CHECKER) * (sort State to CompositionState) .
     protecting ASSERTION-CHECK .
 
-    subsort Configuration < CompositionState .
+    op statePair : Configuration StmtAST -> CompositionState [ctor] .
+    --- subsort Configuration < CompositionState .
 
     op unhandledRequest : -> Prop [ctor] .
     
@@ -830,15 +834,15 @@ mod COMPOSITION-PREDS is
     var REQ : SemRequest .
     var SERV : SemComponentList .
     var ENV : Environment .
-    var CODE : StmtAST .
+    vars CODE CODE' : StmtAST .
 
     eq prepareAssertions(CODE) = assertions(CODE) .
 
-    eq CONF connection(ID, S, PATH, REQ) |= unhandledRequest = true .
-    eq CONF service(S, server(SERV, process(connection(ID, S', PATH, REQ), ENV))) |= unhandledRequest = true .
-    eq CONF |= unhandledRequest = false [owise] .
+    --- eq CONF connection(ID, S, PATH, REQ) |= unhandledRequest = true .
+    --- eq CONF service(S, server(SERV, process(connection(ID, S', PATH, REQ), ENV))) |= unhandledRequest = true .
+    --- eq CONF |= unhandledRequest = false [owise] .
 
-    eq CONF |= assertions(CODE) = checkAssertions(evalStmt(CODE, toState(CONF))) .
+    eq statePair(CONF, CODE') |= assertions(CODE) = satisfies(CONF, CODE' ; CODE) .
 endm
 
 mod COMPOSITION is

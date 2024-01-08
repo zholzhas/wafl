@@ -51,8 +51,12 @@ fmod LANG-SYNTAX is
     op __ : Stmt Stmt -> Stmt [assoc prec 50] .
     op function_`(`) {_} : Token Stmt -> Stmt .
     op function_`(_`) {_} : Token TokenList Stmt -> Stmt .
-    op _`(`) : Token -> Expr .
-    op _`(_`) : Token ArgList -> Expr [prec 15] .
+
+    sort Funccall .
+    subsort Funccall < Expr .
+
+    op _`(`) : Token -> Funccall .
+    op _`(_`) : Token ArgList -> Funccall [prec 15] .
     op _,_ : ArgList ArgList -> ArgList [assoc] .
     op return_; : Expr -> Stmt .
 
@@ -84,17 +88,28 @@ fmod LANG-AST is
 
     sort AST .
 
-    sort ExprAST .
-    sort StmtAST .
-    sort Ident .
-    subsort ExprAST < StmtAST < AST .
-    subsort Ident < ExprAST .
-    sort DeclAST .
-    subsort DeclAST < StmtAST .
+    sorts ExprAST StmtAST DeclAST .
+    subsort ExprAST DeclAST < StmtAST < AST .
 
+    op pass : -> StmtAST [ctor] . --- nothing
+    op _;_ : StmtAST StmtAST -> StmtAST [ctor assoc id: pass] .
+
+    ops $add $sub $mult $div $gt $ge $lt $le $and $or $eq $ne : ExprAST ExprAST -> ExprAST [ctor] . --- binary operations
+    op assign : ExprAST ExprAST -> StmtAST [ctor] . --- =
+    op $ifelse : ExprAST StmtAST StmtAST -> StmtAST [ctor] .
+    op $while : ExprAST StmtAST -> StmtAST [ctor] .
+    
+    op str : String -> ExprAST [ctor] . --- string literal
+    op int : Int -> ExprAST [ctor] . --- integer literal
+    op float : Float -> ExprAST [ctor] . --- integer literal
+    op bool : Bool -> ExprAST [ctor] .
+
+    sort Ident .
+    subsort Ident < ExprAST .
+    op id : String -> Ident [ctor] . --- identifier
+    
     sorts ArgAST ArgListAST ParamAST ParamListAST .
     subsort ExprAST < ArgAST < ArgListAST .
-    subsort Ident < ParamListAST .
     subsort ParamListAST < ArgListAST .
 
     op empty : -> ParamListAST [ctor] . --- list of parameters in function definition
@@ -103,11 +118,19 @@ fmod LANG-AST is
     op _,_ : ArgListAST ParamListAST -> ArgListAST [ditto] .
     op _,_ : ParamListAST ArgListAST -> ArgListAST [ditto] .
 
-    op id : String -> Ident [ctor] . --- identifier
-    op str : String -> ExprAST [ctor] . --- string literal
-    op int : Int -> ExprAST [ctor] . --- integer literal
-    op float : Float -> ExprAST [ctor] . --- integer literal
-    op bool : Bool -> ExprAST [ctor] .
+    subsort Ident < ParamListAST .
+
+    op function : String FuncParams StmtAST -> DeclAST [ctor] . --- function definition
+    op function : String FuncParams -> DeclAST [ctor] .
+
+    op return : ExprAST -> StmtAST [ctor] . --- return from function
+    op call : String CallArgs -> ExprAST [ctor] . --- function call
+
+    sort CallArgs .
+    op args : ArgListAST -> CallArgs [ctor] .
+
+    sort FuncParams .
+    op params : ParamListAST -> FuncParams [ctor] .
 
     op list : ArgListAST -> ExprAST [ctor] .
     op dict : DictEntryListAST -> ExprAST [ctor] .
@@ -121,30 +144,12 @@ fmod LANG-AST is
     op member : ExprAST String -> ExprAST [ctor] .
     op index : ExprAST ExprAST -> ExprAST [ctor] .
 
-    ops $add $sub $mult $div $gt $ge $lt $le $and $or $eq $ne : ExprAST ExprAST -> ExprAST [ctor] . --- binary operations
-    op assign : ExprAST ExprAST -> StmtAST [ctor] . --- =
-    op pass : -> StmtAST [ctor] . --- nothing
-    op return : ExprAST -> StmtAST [ctor] . --- return from function
-    op $ifelse : ExprAST StmtAST StmtAST -> StmtAST [ctor] .
-    op $while : ExprAST StmtAST -> StmtAST [ctor] .
-
     op abort : -> StmtAST [ctor] . --- end execution
 
     sort IO .
     op $lock : ExprAST IO -> StmtAST [ctor] .
     op $dispatch : ExprAST IO -> StmtAST [ctor] .
 
-    op _;_ : StmtAST StmtAST -> StmtAST [ctor assoc id: pass] .
-
-    op function : String FuncParams StmtAST -> DeclAST [ctor] . --- function definition
-    op function : String FuncParams -> DeclAST [ctor] .
-    op call : String CallArgs -> ExprAST [ctor] . --- function call
-
-    sort CallArgs .
-    op args : ArgListAST -> CallArgs [ctor] .
-
-    sort FuncParams .
-    op params : ParamListAST -> FuncParams [ctor] .
 
     sort Value .
     op void : -> Value [ctor] .
