@@ -777,7 +777,11 @@ mod ASSERTION-CHECK is
     var CONF : Configuration .
     var CODE : StmtAST .
 
-    eq satisfies(CONF, CODE) = if checkValid(evalStmt(CODE, toState(CONF))) and noErrors(CONF) then checkAssertions(evalStmt(CODE, toState(CONF))) else false fi .
+    eq satisfies(CONF, CODE) = if 
+        checkValid(evalStmt(CODE, toState(CONF))) and noErrors(CONF) 
+    then 
+        checkAssertions(evalStmt(CODE, toState(CONF))) 
+    else false fi .
 
     eq checkAssertions({ void, St }) = true .
     eq checkAssertions(dispatched(~RES, boolVal(B), assertion)) = B and checkAssertions(~RES) .
@@ -796,6 +800,7 @@ mod ASSERTION-CHECK is
     var N : Nat .
     --- var ~RES : [EvalResult] .
 
+    --- TODO: Iterate over all processes
     eq noErrors(CONF service(S, server(SERV, process(CONN, {
         < EXEC : Executor | ATTRS, currentResult : ~RES >
     }))))
@@ -820,12 +825,9 @@ mod COMPOSITION-PREDS is
     protecting ASSERTION-CHECK .
 
     op statePair : Configuration StmtAST -> CompositionState [ctor] .
-    --- subsort Configuration < CompositionState .
 
-    op unhandledRequest : -> Prop [ctor] .
-    
     op assertions : StmtAST -> Prop [ctor] .
-    op prepareAssertions : StmtAST ~> Prop [ctor] .
+    --- op prepareAssertions : StmtAST ~> Prop [ctor] .
 
 
     var CONF : Configuration .
@@ -836,11 +838,7 @@ mod COMPOSITION-PREDS is
     var ENV : Environment .
     vars CODE CODE' : StmtAST .
 
-    eq prepareAssertions(CODE) = assertions(CODE) .
-
-    --- eq CONF connection(ID, S, PATH, REQ) |= unhandledRequest = true .
-    --- eq CONF service(S, server(SERV, process(connection(ID, S', PATH, REQ), ENV))) |= unhandledRequest = true .
-    --- eq CONF |= unhandledRequest = false [owise] .
+    --- eq prepareAssertions(CODE) = assertions(CODE) .
 
     eq statePair(CONF, CODE') |= assertions(CODE) = satisfies(CONF, CODE' ; CODE) .
 endm

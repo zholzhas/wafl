@@ -40,7 +40,7 @@ mod LTL-PROCESS is
     eq processLtl('_<=>_[T, T']) = processLtl(T) <=> processLtl(T') .
 
 
-    eq processLtl(T) = prepareAssertions(process(T)) [owise] .
+    eq processLtl(T) = assertions(process(T)) [owise] .
 endm
 
 mod LTL-PARSING is
