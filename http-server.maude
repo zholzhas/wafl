@@ -335,14 +335,14 @@ mod SERVER-EXECUTION is
     var CODE : StmtAST .
     var ATTRS : AttributeSet .
 
-    rl 
+    eq 
         < executor : Executor | 
             currentResult : ~RES, 
             initialState : ([ FUNCS ; func(CONTR, params(id(ARG)), CODE) | VARS | STACK ]),
             ATTRS
         >
         callController(CONTR, IOVAL)
-    =>
+    =
         < executor : Executor | 
             currentResult : evalStmt(CODE, assignVar(ARG, getValue(toVal(IOVAL, [ FUNCS ; func(CONTR, params(id(ARG)), CODE) | VARS | STACK ])), getState(toVal(IOVAL, [ FUNCS ; func(CONTR, params(id(ARG)), CODE) | VARS | STACK ])))), 
             initialState : getState(toVal(IOVAL, [ FUNCS ; func(CONTR, params(id(ARG)), CODE) | VARS | STACK ])),
@@ -359,11 +359,11 @@ mod SERVER-EXECUTION is
         func("getPersistent", params(id("key")), $dispatch(id("key"), getPersistentValue) ; $lock(id("res"), getPersistentValue) ; return(id("res"))) 
     .
 
-    rl < executor : Executor | 
+    eq < executor : Executor | 
             currentResult : dispatched(~RES, IOVAL, connectionIn), 
             ATTRS
         >
-    =>
+    =
         < executor : Executor | 
             currentResult : ~RES,
             ATTRS
@@ -371,12 +371,12 @@ mod SERVER-EXECUTION is
         responseSent(IOVAL)
     .
 
-    rl < executor : Executor | 
+    eq < executor : Executor | 
             currentResult : dispatched(~RES, list(strVal(NAME) IOVAL), setPersistentValue), 
             waiting : none,
             ATTRS
         >
-    =>
+    =
         < executor : Executor | 
             currentResult : ~RES,
             waiting : setPersistentValue,
@@ -385,13 +385,13 @@ mod SERVER-EXECUTION is
         setPersistent(NAME, IOVAL)
     .
 
-    rl < executor : Executor | 
+    eq < executor : Executor | 
             currentResult : ~RES,
             waiting : setPersistentValue,
             ATTRS
         >
         setPersistentOk
-    =>
+    =
         < executor : Executor | 
             currentResult : unlock(~RES, boolVal(true)),
             waiting : none,
@@ -399,12 +399,12 @@ mod SERVER-EXECUTION is
         >
     .
 
-    rl < executor : Executor | 
+    eq < executor : Executor | 
             currentResult : dispatched(~RES, strVal(NAME), getPersistentValue), 
             waiting : none,
             ATTRS
         >
-    =>
+    =
         < executor : Executor | 
             currentResult : ~RES,
             waiting : getPersistentValue,
@@ -413,13 +413,13 @@ mod SERVER-EXECUTION is
         getPersistent(NAME)
     .
 
-    rl < executor : Executor | 
+    eq < executor : Executor | 
             currentResult : ~RES,
             waiting : getPersistentValue,
             ATTRS
         >
         persistentValue(IOVAL)
-    =>
+    =
         < executor : Executor | 
             currentResult : unlock(~RES, IOVAL),
             waiting : none,
@@ -760,6 +760,11 @@ mod COMPOSITION-TO-LANGUAGE is
     )) .
 endm
 
+mod COMPOSITION-LANGUAGE-TEST is pr COMPOSITION-TO-LANGUAGE .
+    op config : -> Configuration .
+    eq config = service("s", server(persistent("v", intVal(5)))) .
+endm
+
 mod ASSERTION-CHECK is
     protecting SERVER-SEMANTICS .
     protecting COMPOSITION-TO-LANGUAGE .
@@ -843,6 +848,20 @@ mod COMPOSITION-PREDS is
     eq statePair(CONF, CODE') |= assertions(CODE) = satisfies(CONF, CODE' ; CODE) .
 endm
 
+mod PRED-TEST is
+    protecting COMPOSITION-PREDS .
+
+    op config : -> Configuration .
+    eq config = none .
+
+    op functions : -> StmtAST .
+    eq functions = function("test", params(empty), 
+        call("assert", args(bool(true)))) .
+
+    op propCode : -> StmtAST .
+    eq propCode = call("test", args(empty)) .
+endm
+
 mod COMPOSITION is
     protecting META-LEVEL .
     protecting QID-LIST .
@@ -916,12 +935,14 @@ mod COMPOSITION is
     vars N N' : Nat .
     var QID : Qid .
     var QLIST : QidList .
+    var RP? : ResultPair? .
 
     op formatErrorString : String ResultPair? -> QidList .
-    eq formatErrorString(TEXT, noParse(I)) = 'Failed '\s 'to '\s 'parse: '\s subQidList(tokenize(TEXT), _-_(I, 19), 20) '\s '<-- '\s 'HERE .
+    eq formatErrorString(TEXT, RP?) = formatErrorString(tokenize(TEXT), RP?) .
 
     op formatErrorString : QidList ResultPair? -> QidList .
     eq formatErrorString(QLIST, noParse(I)) = 'Failed '\s 'to '\s 'parse: '\s subQidList(QLIST, _-_(I, 19), 20) '\s '<-- '\s 'HERE .
+    --- eq formatErrorString(QLIST, ambiguity()) = 'Failed '\s 'to '\s 'parse: '\s subQidList(QLIST, _-_(I, 19), 20) '\s '<-- '\s 'HERE .
 
     op generateError : String ResultPair? -> ConfigurationOrError .
     eq generateError(TEXT, noParse(I)) = parseError("Failed to parse: " + printTokens(subQidList(tokenize(TEXT), _-_(I, 19), 20)) + " <-- HERE") .

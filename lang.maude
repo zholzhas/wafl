@@ -11,7 +11,7 @@ fmod LANG-SYNTAX is
     op token : Qid -> Token 
         [special (id-hook Bubble     (1 1) --- min/max number of any token for the term (only 1 token allowed)
                 op-hook qidSymbol (<Qids> : ~> Qid)
-                id-hook Exclude (pass, function, `(, `), ;, =, return, :, [, ], {, }, `, , true, false )) ] . --- disallow special words
+                id-hook Exclude (pass, function, `(, `), ;, =, return, :, [, ], {, }, `, , true, false, ~, [], <>, /\, \/, ->, <->, =>, <=> )) ] . --- disallow special words
 
     sort Expr .
     subsort Token < Expr .
@@ -40,6 +40,7 @@ fmod LANG-SYNTAX is
     op _<=_ : Expr Expr -> Expr [gather (e E) prec 37] .
     op _&&_ : Expr Expr -> Expr [gather (e E) prec 55] .
     op _||_ : Expr Expr -> Expr [gather (e E) prec 59] .
+    op !_ : Expr -> Expr [prec 53] .
 
     op if_{_} : Expr Stmt -> Stmt .
     op if_{_} else {_} : Expr Stmt Stmt -> Stmt .
@@ -56,7 +57,7 @@ fmod LANG-SYNTAX is
     subsort Funccall < Expr .
 
     op _`(`) : Token -> Funccall .
-    op _`(_`) : Token ArgList -> Funccall [prec 15] .
+    op _`(_`) : Token ArgList -> Funccall [prec 1 gather (e &)] .
     op _,_ : ArgList ArgList -> ArgList [assoc] .
     op return_; : Expr -> Stmt .
 
@@ -70,8 +71,8 @@ fmod LANG-SYNTAX is
 
     op _[_] : Expr Expr -> Expr [prec 10 gather (E &)] .
 
-    op [_] : ArgList -> Expr .
-    op [] : -> Expr .
+    op [_] : ArgList -> Expr [prec 2] .
+    op [] : -> Expr [prec 2] .
 
     ops true false : -> Expr .
 endfm
@@ -659,6 +660,12 @@ fmod LANG-SEMANTICS is
     } 
     if isDict(getValue(evalExpr(E, St))) .
 
+    --- ceq evalExpr(call("keys", args(E, E1)), St) = {
+    ---     listVal(hasMapping(getDict(getValue(evalExpr(E, St))), getStr(getValue(evalExpr(E1, getState(evalExpr(E, St))))))),
+    ---     getState(evalExpr(E1, getState(evalExpr(E, St))))
+    --- } 
+    --- if isDict(getValue(evalExpr(E, St))) .
+
     var RES : EvalResult .
 
     op functionCallResult : FuncParams State EvalResult -> [EvalResult] .
@@ -915,6 +922,7 @@ fmod LANG is
     eq process('_<=_[T, T1]) = $le(process(T), process(T1)) .
     eq process('_&&_[T, T1]) = $and(process(T), process(T1)) .
     eq process('_||_[T, T1]) = $or(process(T), process(T1)) .
+    eq process('!_[T]) = $eq(process(T), bool(false)) .
 
     eq process('`(_`)[T]) = process(T) .
     eq process('_;[T]) = process(T) .

@@ -1,9 +1,20 @@
-rew ['load 'lang.maude '.,
-            < o : Database |
-            db : initialDatabase,
-            input : nilTermList, output : nil,
-            default : 'CONVERSION >,
-    nil]
-.
+mod TEST1 is
+    sorts A B C .
+
+    op c : C -> C [ctor] .
+
+    subsort A < C .
+    subsort A < B .
+
+    op b : -> B [ctor] .
+endm
+
+--- rew ['load 'lang.maude '.,
+---             < o : Database |
+---             db : initialDatabase,
+---             input : nilTermList, output : nil,
+---             default : 'CONVERSION >,
+---     nil]
+--- .
 
 --- red procLoad('lang.maude, 'CONVERSION, initialDatabase) .
