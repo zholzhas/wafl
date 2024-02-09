@@ -395,6 +395,9 @@ fmod LANG-SEMANTICS is
     var IOLIST : List{IOValue} .
     var IOMAP : Map{String, IOValue} .
 
+    op getIoList : IOValue -> List{IOValue} .
+    eq getIoList(list(IOLIST)) = IOLIST .
+
     op getMap : IOValue -> Map{String, IOValue} .
     eq getMap(map(IOMAP)) = IOMAP .
 

@@ -20,6 +20,7 @@ fmod SERVER-SYNTAX is
 
     op code`{_`} : TopLevel -> Component [ctor] .
     op routes {_} : Router -> Component [ctor] .
+    op listen {_} : Router -> Component [ctor] .
     op persistent_=_; : Token Expr -> Component [ctor] .
 
     sort Router .
@@ -38,6 +39,7 @@ fmod SERVER-SYNTAX is
 
     op service_{_} : Token ComponentList -> Service [ctor] .
     op init`{_`} : TopLevel -> Service [ctor] .
+    --- op init`on_{_`} : Token TopLevel -> Service [ctor] .
     op props`{_`} : TopLevel -> PropCode [ctor] .
 
     sorts Service ServiceList .
@@ -62,6 +64,7 @@ mod SERVER-AST is
     op code : StmtAST -> SemComponent [ctor] .
     op initialState : State -> SemComponent [ctor] .
     op routes : SemRouter -> SemComponent [ctor] .
+    op listen : SemRouter -> SemComponent [ctor] .
     op persistent : String IOValue -> SemComponent [ctor] .
 
     sorts SemConnId SemConnection SemRequest SemResponse .
@@ -76,9 +79,19 @@ mod SERVER-AST is
     op dummyConnection : -> SemConnection [ctor] .
     op connection : SemConnId SemServiceId SemServiceId SemRequest -> SemConnection [ctor] .
     op connection : SemConnId SemServiceId SemServiceId SemRequest SemResponse -> SemConnection [ctor] .
+    op messageConnection : String -> SemConnection [ctor] .
 
     op httpRequest : String IOValue -> SemRequest [ctor] .
     op response : IOValue -> SemResponse [ctor] .
+
+
+    sorts Message MessageQueue .
+    subsort IOValue < Message < MessageQueue .
+    --- op message : IOValue -> Message [ctor] .
+    op empty : -> MessageQueue [ctor] .
+    op _,_ : MessageQueue MessageQueue -> MessageQueue [ctor assoc id: empty] .
+
+    op queue : String MessageQueue -> Object [ctor] .
 
     sort SemRouter .
     sort SemRoute .
@@ -105,6 +118,7 @@ mod SERVER-AST is
 
     op initManager : Nat -> Object [ctor] .
     op init : StmtAST -> SemService [ctor] .
+    op init : String StmtAST -> SemService [ctor] .
     op initId : Nat -> SemServiceId [ctor] .
     op $cli : -> SemServiceId [ctor] .
 endm
@@ -136,6 +150,7 @@ mod SERVER is
 
 
     eq processComponents('routes`{_`}[TL]) = routes(processRoutes(TL)) .
+    eq processComponents('listen`{_`}[TL]) = listen(processRoutes(TL)) .
 
     ceq processComponents('persistent_=_;['token[T], T1]) = persistent(
         string(downTerm(T, '$err)), 
@@ -168,6 +183,7 @@ mod SERVER is
         )
     ) .
     eq processConfig('init`{_`}[T]) = init(processLang(T)) .
+    eq processConfig('init`on_`{_`}['token[T], T1]) = init(string(downTerm(T, '$err)), processLang(T1)) .
     eq processConfig('props`{_`}[T]) = none .
 
     op processProps : TermList ~> StmtAST .
@@ -224,7 +240,7 @@ mod LANG-EXECUTION is
     op none : -> IO? [ctor] .
     
     --- generate starting environment with predefined functions and initial declaration code
-    op initiate : StmtAST FuncStorage -> Environment [ctor] .
+    op initiate : StmtAST FuncStorage -> Environment .
 
     var CONF : Configuration .
     var ~RES : [EvalResult] .
@@ -265,10 +281,14 @@ mod LANG-EXECUTION is
     op connectionOut : -> IO [ctor] .
     op outcomingRequest : String String IOValue -> Msg [ctor] .
     op incomingResponse : IOValue -> Msg [ctor] .
+    
+    op messageSent : -> IO [ctor] . 
+    op outcomingMessage : String IOValue -> Msg [ctor] . 
 
     op defaultFunctions : -> FuncStorage .
     eq defaultFunctions =
-        func("request", params(id("svc"), id("path"), id("payload")), $dispatch(list(id("svc"), id("path"), id("payload")), connectionOut) ; $lock(id("res"), connectionOut) ; return(id("res")))
+        func("request", params(id("svc"), id("path"), id("payload")), $dispatch(list(id("svc"), id("path"), id("payload")), connectionOut) ; $lock(id("res"), connectionOut) ; return(id("res"))) ;
+        func("message", params(id("channel"), id("payload")), $dispatch(list(id("channel"), id("payload")), messageSent))
     .
 
     vars SERVICE PATH : String .
@@ -300,6 +320,20 @@ mod LANG-EXECUTION is
             waiting : none,
             ATTRS
         >
+    .
+
+    rl < executor : Executor | 
+            currentResult : dispatched(~RES, list(strVal(PATH) IOVAL), messageSent), 
+            waiting : none,
+            ATTRS
+        >
+    =>
+        < executor : Executor | 
+            currentResult : ~RES,
+            waiting : none,
+            ATTRS
+        >
+        outcomingMessage(PATH, IOVAL)
     .
 endm
 
@@ -359,11 +393,11 @@ mod SERVER-EXECUTION is
         func("getPersistent", params(id("key")), $dispatch(id("key"), getPersistentValue) ; $lock(id("res"), getPersistentValue) ; return(id("res"))) 
     .
 
-    eq < executor : Executor | 
+    rl < executor : Executor | 
             currentResult : dispatched(~RES, IOVAL, connectionIn), 
             ATTRS
         >
-    =
+    =>
         < executor : Executor | 
             currentResult : ~RES,
             ATTRS
@@ -371,12 +405,12 @@ mod SERVER-EXECUTION is
         responseSent(IOVAL)
     .
 
-    eq < executor : Executor | 
+    rl < executor : Executor | 
             currentResult : dispatched(~RES, list(strVal(NAME) IOVAL), setPersistentValue), 
             waiting : none,
             ATTRS
         >
-    =
+    =>
         < executor : Executor | 
             currentResult : ~RES,
             waiting : setPersistentValue,
@@ -385,13 +419,13 @@ mod SERVER-EXECUTION is
         setPersistent(NAME, IOVAL)
     .
 
-    eq < executor : Executor | 
+    rl < executor : Executor | 
             currentResult : ~RES,
             waiting : setPersistentValue,
             ATTRS
         >
         setPersistentOk
-    =
+    =>
         < executor : Executor | 
             currentResult : unlock(~RES, boolVal(true)),
             waiting : none,
@@ -399,12 +433,12 @@ mod SERVER-EXECUTION is
         >
     .
 
-    eq < executor : Executor | 
+    rl < executor : Executor | 
             currentResult : dispatched(~RES, strVal(NAME), getPersistentValue), 
             waiting : none,
             ATTRS
         >
-    =
+    =>
         < executor : Executor | 
             currentResult : ~RES,
             waiting : getPersistentValue,
@@ -413,13 +447,13 @@ mod SERVER-EXECUTION is
         getPersistent(NAME)
     .
 
-    eq < executor : Executor | 
+    rl < executor : Executor | 
             currentResult : ~RES,
             waiting : getPersistentValue,
             ATTRS
         >
         persistentValue(IOVAL)
-    =
+    =>
         < executor : Executor | 
             currentResult : unlock(~RES, IOVAL),
             waiting : none,
@@ -521,6 +555,30 @@ mod SERVER-SEMANTICS is
         ))
     .
 
+    var MSGQ : MessageQueue .
+
+    crl [CONSUME-MESSAGE] : 
+        queue(PATH, (V, MSGQ))
+        service(S', server(SERV, code(CODE), listen(route(PATH, CONTR), ROUTER)))
+    =>
+        queue(PATH, MSGQ)
+        service(S', server(SERV,
+            code(CODE),
+            listen(route(PATH, CONTR), ROUTER), 
+            process(messageConnection(PATH), initiateServer(CODE, CONTR, V))
+        ))
+    if not consuming(SERV, PATH) .
+
+    op consuming : SemComponentList String -> Bool .
+    eq consuming((SERV, process(messageConnection(PATH), { CONF })), PATH) = true .
+    eq consuming(SERV, PATH) = false [owise] .
+
+    rl initManager(ID) init(CODE) 
+    => 
+        initManager(ID + 1) 
+        service(initId(ID), server(process(dummyConnection, initiate(CODE, defaultFunctions)))) 
+    .
+
     rl initManager(ID) init(CODE) 
     => 
         initManager(ID + 1) 
@@ -603,6 +661,7 @@ mod PRINTER is
     
     op printInnerConnection : Term Nat ~> QidList .
     eq printInnerConnection('connection[T, T1, T2, 'httpRequest[T3, T4]], N) = 'CONN '\s ': 's printAst(T) '\s '| '\s printAst(T3) '\s '~ '\s printAst(T4) .
+    eq printInnerConnection('messageConnection[T], N) = 'CONSUMING '\s printAst(T) .
     eq printInnerConnection('dummyConnection.SemConnection, N) = 'init .
 
 
@@ -640,6 +699,7 @@ mod COMPOSITION-TO-LANGUAGE is
     op assertion : -> IO .
 
     op serverToIOVal : SemComponentList -> IOValue .
+    op queueToIOVal : MessageQueue -> IOValue .
     op connectionToIOVal : SemConnection -> IOValue .
 
     var O : Object .
@@ -682,6 +742,24 @@ mod COMPOSITION-TO-LANGUAGE is
             ))
         ) 
     ) .
+    
+    var MSGQ : MessageQueue .
+
+    eq toState(queue(S, MSGQ) CONF, St) = toState(
+        CONF, 
+        assignValue(
+            getRef(getValue(evalRefExpr(
+                member(id("queues"), S), 
+                getState(toVal(queueToIOVal(MSGQ), St))
+            ))), 
+            getValue(toVal(queueToIOVal(MSGQ), St)), 
+            getState(evalRefExpr(
+                member(id("queues"), S), 
+                getState(toVal(queueToIOVal(MSGQ), St))
+            ))
+        ) 
+    ) .
+
     eq toState(CONN CONF, St) = toState(
         CONF, 
         assignValue(
@@ -722,6 +800,12 @@ mod COMPOSITION-TO-LANGUAGE is
             ), 
             getMap(serverToIOVal(SERV))
         )
+    ) .
+
+    eq queueToIOVal(empty)  = list(nil) .
+    eq queueToIOVal(VAL, MSGQ) = list(
+        VAL
+        getIoList(queueToIOVal(MSGQ))
     ) .
 
     eq connectionToIOVal(connection(ID, S, S', httpRequest(PATH, VAL))) = map((

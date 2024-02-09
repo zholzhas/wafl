@@ -18,3 +18,227 @@ endm
 --- .
 
 --- red procLoad('lang.maude, 'CONVERSION, initialDatabase) .
+
+
+---(
+mod SIMPLIFIER is
+    protecting CLI .
+    protecting META-MODULE .
+    protecting META-LEVEL .
+
+    op compile : Configuration -> Module .
+    
+    var CONF : Configuration .
+
+    eq compile(CONF) = mod '__SIMPLE is 
+        protecting 'LTL * (sort 'State to 'CompositionState) ; 'SERVER .
+        
+        sorts none .
+
+        op 'simpleState : 'Nat 'State -> 'CompositionState .
+
+
+        createRules(getAutomaton(CONF))
+    endm .
+
+    op createRules : Configuration Nat -> RuleSet .
+    ceq createRules(CONF, N:Nat) = 
+        (rl upTerm(toState(CONF)) => 
+            getTerm(metaSearch(upModule('SERVER, true), T:Term, 'C:Configuration, nil, '+, 1, N:Nat)) 
+        [none] .
+        createRules(T:Term, s(N:Nat))
+        createRules(getTerm(metaSearch(upModule('SERVER, true), T:Term, 'C:Configuration, nil, '+, 1, N:Nat)), 0)
+        )
+    if metaSearch(upModule('SERVER, true), T:Term, 'C:Configuration, nil, '+, 1, N:Nat) :: ResultTriple
+    .
+endm
+)
+mod LOOP-TEST is
+    protecting CLI-LOOP .
+
+    op test : -> System .
+
+    rl
+     test
+     => [tokenize("dump ltl result"),
+        < cliReader : CliReader |
+            state : idle, 
+            composition : upTerm(initConfig), 
+            assertions : pass,
+            counterexampleState : noTerm,
+            counterexamplePath : nil,
+            simulationResult : noTerm,
+            stdio : false,
+            input : failure,
+            output : nil,
+            ltlResult : true
+        >,
+         nil] .
+endm
+
+--- red in CLI : getCounterexamplePath(upTerm((none).Configuration), call("assert", args(bool(false)))) .
+--- erew init .
+
+mod TEST is
+    protecting CLI .
+
+    op comp : -> Configuration .
+    eq comp =  <> connectionManager(5)initManager(3)service("newSystem",server(code(function("create",params(id("request")),
+    assign(id("agreements"),call("getPersistent",args(str("agreements")))); assign(id("agreement"),member(id("request"),
+    "agreement")); assign(member(id("agreement"),"state"),str("created")); assign(index(id("agreements"),member(id(
+    "agreement"),"id")),id("agreement")); call("setPersistent",args(str("agreements"),id("agreements"))); call("respond",
+    args(id("agreement")))); function("send",params(id("request")),assign(id("agreements"),call("getPersistent",args(str(
+    "agreements")))); assign(id("id"),member(id("request"),"id")); $ifelse($eq(call("keyExists",args(id("agreements"),id(
+    "id"))),bool(false)),call("respond",args(str("fail"))); return(int(0)),pass); assign(id("agreement"),index(id(
+    "agreements"),id("id"))); assign(id("systems"),call("getPersistent",args(str("correspondents")))); assign(id("i"),int(
+    0)); $while($lt(id("i"),call("len",args(member(id("agreement"),"correspondents")))),assign(id("modified_agreement"),id(
+    "agreement")); assign(member(id("modified_agreement"),"correspondents"),call("append",args(member(id("agreement"),
+    "correspondents"),str("newCompany")))); call("request",args(index(id("systems"),index(member(id("agreement"),
+    "correspondents"),id("i"))),str("/ext/create"),dict(dictItem(id("agreement"),id("modified_agreement"))))); assign(id(
+    "i"),$add(id("i"),int(1)))); assign(member(id("agreement"),"state"),str("sent")); assign(index(id("agreements"),member(
+    id("agreement"),"id")),id("agreement")); call("setPersistent",args(str("agreements"),id("agreements"))); call(
+    "respond",args(str("ok")))); function("sign",params(id("request")),assign(id("agreements"),call("getPersistent",args(
+    str("agreements")))); assign(id("id"),member(id("request"),"id")); $ifelse($eq(call("keyExists",args(id("agreements"),
+    id("id"))),bool(false)),call("respond",args(str("fail"))); return(int(0)),pass); assign(id("agreement"),index(id(
+    "agreements"),id("id"))); assign(member(id("agreement"),"state"),str("signed")); assign(index(id("agreements"),member(
+    id("agreement"),"id")),id("agreement")); call("setPersistent",args(str("agreements"),id("agreements"))); assign(id(
+    "systems"),call("getPersistent",args(str("correspondents")))); $while($lt(id("i"),call("len",args(member(id(
+    "agreement"),"correspondents")))),call("request",args(index(id("systems"),index(member(id("agreement"),
+    "correspondents"),id("i"))),str("/ext/sign"),dict(dictItem(id("id"),id("id"))))); assign(id("i"),$add(id("i"),int(
+    1)))); call("respond",args(str("ok")))); function("retract",params(id("request")),assign(id("agreements"),call(
+    "getPersistent",args(str("agreements")))); assign(id("id"),member(id("request"),"id")); $ifelse($eq(call("keyExists",
+    args(id("agreements"),id("id"))),bool(false)),call("respond",args(str("fail"))); return(int(0)),pass); assign(id(
+    "agreement"),index(id("agreements"),id("id"))); assign(member(id("agreement"),"state"),str("retracted")); assign(index(
+    id("agreements"),member(id("agreement"),"id")),id("agreement")); call("setPersistent",args(str("agreements"),id(
+    "agreements"))); assign(id("systems"),call("getPersistent",args(str("correspondents")))); assign(id("i"),int(0));
+    $while($lt(id("i"),call("len",args(member(id("agreement"),"correspondents")))),call("request",args(index(id("systems"),
+    index(member(id("agreement"),"correspondents"),id("i"))),str("/ext/retract"),dict(dictItem(id("id"),id("id")))));
+    assign(id("i"),$add(id("i"),int(1)))); call("respond",args(str("ok"))))),routes(route("/create","create"),route(
+    "/retract","retract"),route("/send","send"),route("/sign","sign")),persistent("agreements",map("doc1" |-> map((
+    "correspondents" |-> list(strVal("companyA")), "id" |-> strVal("doc1"), "state" |-> strVal("sent"))))),persistent(
+    "correspondents",map(("companyA" |-> strVal("oldSystemA"), "companyB" |-> strVal("oldSystemB"), "newCompany" |->
+    strVal("newCompany"))))))service("oldSystemA",server(code(function("extCreate",params(id("request")),assign(id(
+    "agreements"),call("getPersistent",args(str("agreements")))); assign(id("agreement"),member(id("request"),
+    "agreement")); assign(id("correspondents"),list(empty)); assign(id("i"),int(0)); $while($lt(id("i"),call("len",args(
+    member(id("agreement"),"correspondents")))),$ifelse($ne(index(member(id("agreement"),"correspondents"),id("i")),str(
+    "companyA")),assign(id("correspondents"),call("append",args(id("correspondents"),index(member(id("agreement"),
+    "correspondents"),id("i"))))),pass); assign(id("i"),$add(id("i"),int(1)))); assign(member(id("agreement"),
+    "correspondents"),id("correspondents")); assign(index(id("agreements"),member(id("agreement"),"id")),id("agreement"));
+    call("setPersistent",args(str("agreements"),id("agreements"))); call("respond",args(id("agreement")))); function(
+    "sign",params(id("request")),assign(id("agreements"),call("getPersistent",args(str("agreements")))); assign(id("id"),
+    member(id("request"),"id")); $ifelse($eq(call("keyExists",args(id("agreements"),id("id"))),bool(false)),call("respond",
+    args(str("fail"))); return(int(0)),pass); assign(id("agreement"),index(id("agreements"),id("id"))); assign(member(id(
+    "agreement"),"state"),str("signed")); assign(index(id("agreements"),member(id("agreement"),"id")),id("agreement"));
+    call("setPersistent",args(str("agreements"),id("agreements"))); assign(id("systems"),call("getPersistent",args(str(
+    "correspondents")))); assign(id("i"),int(0)); $while($lt(id("i"),call("len",args(member(id("agreement"),
+    "correspondents")))),call("request",args(index(id("systems"),index(member(id("agreement"),"correspondents"),id("i"))),
+    str("/ext/sign"),dict(dictItem(id("id"),id("id"))))); assign(id("i"),$add(id("i"),int(1)))); call("respond",args(str(
+    "ok")))); function("extSign",params(id("request")),assign(id("agreements"),call("getPersistent",args(str(
+    "agreements")))); assign(id("id"),member(id("request"),"id")); $ifelse($eq(call("keyExists",args(id("agreements"),id(
+    "id"))),bool(false)),call("respond",args(str("fail"))); return(int(0)),pass); assign(id("agreement"),index(id(
+    "agreements"),id("id"))); assign(member(id("agreement"),"state"),str("signed")); assign(index(id("agreements"),member(
+    id("agreement"),"id")),id("agreement")); call("setPersistent",args(str("agreements"),id("agreements"))); call(
+    "respond",args(str("ok")))); function("extRetract",params(id("request")),assign(id("agreements"),call("getPersistent",
+    args(str("agreements")))); assign(id("id"),member(id("request"),"id")); $ifelse($eq(call("keyExists",args(id(
+    "agreements"),id("id"))),bool(false)),call("respond",args(str("fail"))); return(int(0)),pass); assign(id("agreement"),
+    index(id("agreements"),id("id"))); assign(member(id("agreement"),"state"),str("retracted")); assign(index(id(
+    "agreements"),member(id("agreement"),"id")),id("agreement")); call("setPersistent",args(str("agreements"),id(
+    "agreements"))); call("respond",args(str("ok"))))),routes(route("/ext/create","extCreate"),route("/ext/retract",
+    "extRetract"),route("/ext/sign","extSign"),route("/list","list")),persistent("agreements",map("doc1" |-> map((
+    "correspondents" |-> list(strVal("newCompany")), "id" |-> strVal("doc1"), "state" |-> strVal("retracted"))))),
+    persistent("correspondents",map(("companyA" |-> strVal("oldSystemA"), "companyB" |-> strVal("oldSystemB"), "newCompany"
+    |-> strVal("newCompany"))))))service(initId(0),server(process(dummyConnection,{< executor : Executor | currentResult :{
+    void,[func("request",params(id("svc"),id("path"),id("payload")),$dispatch(list(id("svc"),id("path"),id("payload")),
+    connectionOut); $lock(id("res"),connectionOut); return(id("res")))| empty | stack(23,0 |-> strVal("newSystem"); 1 |->
+    strVal("/create"); 2 |-> strVal("doc1"); 3 |-> strVal("companyA"); 4 |-> listVal(3); 5 |-> dictVal(d("correspondents",
+    4); d("id",2)); 6 |-> dictVal(d("agreement",5)); 7 |-> strVal("newSystem"); 8 |-> strVal("/create"); 9 |-> strVal(
+    "companyA"); 10 |-> listVal(9); 11 |-> strVal("doc1"); 12 |-> dictVal(d("correspondents",10); d("id",11)); 13 |->
+    dictVal(d("agreement",12)); 14 |-> dictVal(d("correspondents",16); d("id",17); d("state",18)); 15 |-> strVal(
+    "companyA"); 16 |-> listVal(15); 17 |-> strVal("doc1"); 18 |-> strVal("created"); 19 |-> strVal("companyA"); 20 |->
+    listVal(19); 21 |-> strVal("doc1"); 22 |-> strVal("created"))]},initialState : getState(dispatched(functionCallResult(
+    params(id("svc"),id("path"),id("payload")),[func("request",params(id("svc"),id("path"),id("payload")),$dispatch(list(
+    id("svc"),id("path"),id("payload")),connectionOut); $lock(id("res"),connectionOut); return(id("res")))| empty | stack(
+    0,empty)],evalStmt(return(id("res")),getState({void,locked([func("request",params(id("svc"),id("path"),id("payload")),
+    $dispatch(list(id("svc"),id("path"),id("payload")),connectionOut); $lock(id("res"),connectionOut); return(id("res")))|
+    "path" := 1 ; "payload" := 6 ; "res" := 14 ; "svc" := 0 | stack(15,0 |-> strVal("newSystem"); 1 |-> strVal("/create");
+    2 |-> strVal("doc1"); 3 |-> strVal("companyA"); 4 |-> listVal(3); 5 |-> dictVal(d("correspondents",4); d("id",2)); 6
+    |-> dictVal(d("agreement",5)); 7 |-> strVal("newSystem"); 8 |-> strVal("/create"); 9 |-> strVal("companyA"); 10 |->
+    listVal(9); 11 |-> strVal("doc1"); 12 |-> dictVal(d("correspondents",10); d("id",11)); 13 |-> dictVal(d("agreement",
+    12)); 14 |-> void)],14,connectionOut)}))),list(strVal("newSystem")strVal("/create")map("agreement" |-> map((
+    "correspondents" |-> list(strVal("companyA")), "id" |-> strVal("doc1"))))),connectionOut)),waiting : none >})))service(
+    initId(1),server(process(dummyConnection,{< executor : Executor | currentResult :{void,[func("request",params(id(
+    "svc"),id("path"),id("payload")),$dispatch(list(id("svc"),id("path"),id("payload")),connectionOut); $lock(id("res"),
+    connectionOut); return(id("res")))| empty | stack(9,0 |-> strVal("newSystem"); 1 |-> strVal("/retract"); 2 |-> strVal(
+    "doc1"); 3 |-> dictVal(d("id",2)); 4 |-> strVal("newSystem"); 5 |-> strVal("/retract"); 6 |-> strVal("doc1"); 7 |->
+    dictVal(d("id",6)); 8 |-> strVal("ok"))]},initialState : getState(dispatched(functionCallResult(params(id("svc"),id(
+    "path"),id("payload")),[func("request",params(id("svc"),id("path"),id("payload")),$dispatch(list(id("svc"),id("path"),
+    id("payload")),connectionOut); $lock(id("res"),connectionOut); return(id("res")))| empty | stack(0,empty)],evalStmt(
+    return(id("res")),getState({void,locked([func("request",params(id("svc"),id("path"),id("payload")),$dispatch(list(id(
+    "svc"),id("path"),id("payload")),connectionOut); $lock(id("res"),connectionOut); return(id("res")))| "path" := 1 ;
+    "payload" := 3 ; "res" := 8 ; "svc" := 0 | stack(9,0 |-> strVal("newSystem"); 1 |-> strVal("/retract"); 2 |-> strVal(
+    "doc1"); 3 |-> dictVal(d("id",2)); 4 |-> strVal("newSystem"); 5 |-> strVal("/retract"); 6 |-> strVal("doc1"); 7 |->
+    dictVal(d("id",6)); 8 |-> void)],8,connectionOut)}))),list(strVal("newSystem")strVal("/retract")map("id" |-> strVal(
+    "doc1"))),connectionOut)),waiting : none >})))service(initId(2),server(process(dummyConnection,{< executor : Executor |
+    currentResult :{void,[func("request",params(id("svc"),id("path"),id("payload")),$dispatch(list(id("svc"),id("path"),id(
+    "payload")),connectionOut); $lock(id("res"),connectionOut); return(id("res")))| empty | stack(9,0 |-> strVal(
+    "newSystem"); 1 |-> strVal("/send"); 2 |-> strVal("doc1"); 3 |-> dictVal(d("id",2)); 4 |-> strVal("newSystem"); 5 |->
+    strVal("/send"); 6 |-> strVal("doc1"); 7 |-> dictVal(d("id",6)); 8 |-> strVal("ok"))]},initialState : getState(
+    dispatched(functionCallResult(params(id("svc"),id("path"),id("payload")),[func("request",params(id("svc"),id("path"),
+    id("payload")),$dispatch(list(id("svc"),id("path"),id("payload")),connectionOut); $lock(id("res"),connectionOut);
+    return(id("res")))| empty | stack(0,empty)],evalStmt(return(id("res")),getState({void,locked([func("request",params(id(
+    "svc"),id("path"),id("payload")),$dispatch(list(id("svc"),id("path"),id("payload")),connectionOut); $lock(id("res"),
+    connectionOut); return(id("res")))| "path" := 1 ; "payload" := 3 ; "res" := 8 ; "svc" := 0 | stack(9,0 |-> strVal(
+    "newSystem"); 1 |-> strVal("/send"); 2 |-> strVal("doc1"); 3 |-> dictVal(d("id",2)); 4 |-> strVal("newSystem"); 5 |->
+    strVal("/send"); 6 |-> strVal("doc1"); 7 |-> dictVal(d("id",6)); 8 |-> void)],8,connectionOut)}))),list(strVal(
+    "newSystem")strVal("/send")map("id" |-> strVal("doc1"))),connectionOut)),waiting : none >}))) .
+
+    op code : -> StmtAST .
+    eq code = function("test",params(
+    empty),call("assert",args($lt(call("len",args(member(member(member(id("services"),"oldSystemA"),"persistents"),
+    "agreements"))),int(1))))); function("retractedAny",params(id("id")),assign(id("services"),list(str("newSystem"),str(
+    "oldSystemA"))); assign(id("i"),int(0)); assign(id("retracted"),bool(false)); $while($lt(id("i"),call("len",args(id(
+    "services")))),assign(id("agreements"),member(member(index(id("services"),index(id("services"),id("i"))),
+    "persistents"),"agreements")); $ifelse(call("keyExists",args(id("agreements"),id("id"))),assign(id("agreement"),index(
+    id("agreements"),id("id"))); assign(id("retracted"),$or(id("retracted"),$eq(member(id("agreement"),"state"),str(
+    "retracted")))),pass)); call("assert",args(id("retracted")))); function("retractedAll",params(id("id")),assign(id(
+    "services"),list(str("newSystem"),str("oldSystemA"))); assign(id("i"),int(0)); assign(id("retracted"),bool(true));
+    $while($lt(id("i"),call("len",args(id("services")))),assign(id("agreements"),member(member(index(id("services"),index(
+    id("services"),id("i"))),"persistents"),"agreements")); assign(id("agreement"),index(id("agreements"),id("id")));
+    assign(id("retracted"),$and(id("retracted"),$eq(member(id("agreement"),"state"),str("retracted"))))); call("assert",
+    args(id("retracted")))) .
+
+    op res : -> EvalResult .
+    eq res = evalStmt(code ; call("retractedAny", args(str("doc1"))), toState(comp)) .
+
+    op correct : -> Configuration .
+    --- eq correct = .
+
+    op as : -> StmtAST .
+    eq as = call("assert", args(bool(false))) .
+endm
+
+--- select CLI-LOOP .
+--- loop initLoop .
+
+
+--- match < O:Oid : CliReader | state : writing, output : (QI:Qid QIL':QidList), Attrs:AttributeSet >
+--- <=? < cliReader : CliReader | state : writing,
+---     --- composition : ('__['<>.Portal,
+---     --- 'connectionManager['0.Zero],'initManager['0.Zero]]),assertions : pass,counterexampleState : noTerm,counterexamplePath :
+---     --- nil,simulationResult : noTerm,input : failure,
+---     output : ('Invalid: '\n 'Starting '\s 'at: '\n 'END '\n + '\n 'With '\s
+---     'loop: '\n '<> '\n 'connectionManager '`( '0 '`) '\n 'initManager '`( '0 '`) '\n '\n '--> '\n 'END '\n)
+---     --- stdio : false,
+---     --- ltlResult : counterexample(nil, {statePair(<> connectionManager(0) initManager(0), pass),deadlock}) 
+---     > .
+
+
+--- select LTL-PARSING .
+
+--- red getLangProcessError(function(
+---     "create", params(id("request")), assign(id("agreements"), call("getPersistent", args(str("aggreements")))) ; assign(id(
+---     "aggreement"), dict(dictItem(id("id"), call("len", args(id("agreements")))),dictItem(id("correspondents"), processLang(
+---     'token[''request.agreements.correspondents.Qid])),dictItem(id("signs"), list(empty)))) ; assign(id("aggreements"),
+---     call("append", args(id("aggreements"),id("aggreement")))) ; call("setPersistent", args(str("aggreements"),id(
+---     "aggreements"))) ; call("respond", args(id("aggreement"))))) .
+
