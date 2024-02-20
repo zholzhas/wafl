@@ -58,6 +58,7 @@ mod SERVER-AST is
     protecting LANG-SEMANTICS .
     protecting CONFIGURATION .
     protecting NAT .
+    protecting SET{String} .
 
     sort SemComponent .
 
@@ -66,12 +67,14 @@ mod SERVER-AST is
     op routes : SemRouter -> SemComponent [ctor] .
     op listen : SemRouter -> SemComponent [ctor] .
     op persistent : String IOValue -> SemComponent [ctor] .
+    op locks : Set{String} -> SemComponent [ctor] .
 
     sorts SemConnId SemConnection SemRequest SemResponse .
     subsort Nat < SemConnId .
 
     subsort SemConnection < Object .
     op connectionManager : Nat -> Object [ctor] .
+    op queueManager : Set{String} -> Object [ctor] .
 
     sort SemServiceId .
     subsort String < SemServiceId .
@@ -179,6 +182,7 @@ mod SERVER is
     eq processConfig('service_`{_`}['token[T], T1]) = service(
         string(downTerm(T, '$err)),
         server(
+            locks(empty),
             processComponents(T1)
         )
     ) .
@@ -283,12 +287,22 @@ mod LANG-EXECUTION is
     op incomingResponse : IOValue -> Msg [ctor] .
     
     op messageSent : -> IO [ctor] . 
-    op outcomingMessage : String IOValue -> Msg [ctor] . 
+    op outcomingMessage : String IOValue -> Msg [ctor] .
+
+    op acquireLock : String -> Msg [ctor] .
+    op releaseLock : String -> Msg [ctor] .
+    op grantedLock : String -> Msg [ctor] .
+    
+    op lock : -> IO [ctor] .
+    op unlock : -> IO [ctor] .
+    op waitLock : String -> IO [ctor] .
 
     op defaultFunctions : -> FuncStorage .
     eq defaultFunctions =
         func("request", params(id("svc"), id("path"), id("payload")), $dispatch(list(id("svc"), id("path"), id("payload")), connectionOut) ; $lock(id("res"), connectionOut) ; return(id("res"))) ;
-        func("message", params(id("channel"), id("payload")), $dispatch(list(id("channel"), id("payload")), messageSent))
+        func("message", params(id("channel"), id("payload")), $dispatch(list(id("channel"), id("payload")), messageSent)) ;
+        func("lock", params(id("src")), $dispatch(id("src"), lock) ; $lock(id("res"), lock) ; return(id("res"))) ;
+        func("unlock", params(id("src")), $dispatch(id("src"), unlock))
     .
 
     vars SERVICE PATH : String .
@@ -334,6 +348,48 @@ mod LANG-EXECUTION is
             ATTRS
         >
         outcomingMessage(PATH, IOVAL)
+    .
+
+    rl < executor : Executor | 
+            currentResult : dispatched(~RES, strVal(PATH), lock), 
+            waiting : none,
+            ATTRS
+        >
+    =>
+        < executor : Executor | 
+            currentResult : ~RES,
+            waiting : waitLock(PATH),
+            ATTRS
+        >
+        acquireLock(PATH)
+    .
+
+    rl < executor : Executor | 
+            currentResult : dispatched(~RES, strVal(PATH), unlock), 
+            waiting : none,
+            ATTRS
+        >
+    =>
+        < executor : Executor | 
+            currentResult : ~RES,
+            waiting : none,
+            ATTRS
+        >
+        releaseLock(PATH)
+    .
+
+    rl < executor : Executor | 
+            currentResult : ~RES, 
+            waiting : waitLock(PATH),
+            ATTRS
+        >
+        grantedLock(PATH)
+    =>
+        < executor : Executor | 
+            currentResult : unlock(~RES, boolVal(true)),
+            waiting : none,
+            ATTRS
+        >
     .
 endm
 
@@ -461,7 +517,6 @@ mod SERVER-EXECUTION is
         >
     .
 
-
     op initiateServer : StmtAST String IOValue ~> Environment .
     eq initiateServer(CODE, CONTR, IOVAL) = callController(initiate(CODE, serverFunctions), CONTR, IOVAL) .
     
@@ -493,6 +548,9 @@ mod SERVER-SEMANTICS is
     var STACK : Stack .
     var CONF : Configuration .
     var CONN : SemConnection .
+    var O : Oid .
+    var RES : EvalResult .
+    var ATTRS : AttributeSet .
 
     rl [CONSUME-REQUEST] : 
         connection(ID, S, S', httpRequest(PATH, V))
@@ -509,7 +567,7 @@ mod SERVER-SEMANTICS is
         service(S', server(SERV, 
         process(
             connection(ID, S, S', httpRequest(PATH, V)), 
-            { responseSent(RESP) CONF }
+            { responseSent(RESP) < O : Executor | ATTRS, currentResult : RES, waiting : none > }
         )
     ))
     =>
@@ -536,6 +594,45 @@ mod SERVER-SEMANTICS is
             )
         ))
     .
+
+    rl [SEND-MESSAGE] : 
+        queue(PATH, (MSGQ))
+        service(S', server(SERV, 
+            process(
+                CONN, 
+                { outcomingMessage(PATH, V) CONF }
+            )
+        ))
+    =>
+        queue(PATH, (MSGQ, V))
+        service(S', server(SERV,
+            process(
+                CONN, 
+                { CONF }
+            )
+        ))
+    .
+
+    var STRSET : Set{String} .
+
+    crl [SEND-MESSAGE-NEW-QUEUE] : 
+        queueManager(STRSET)
+        service(S', server(SERV, 
+            process(
+                CONN, 
+                { outcomingMessage(PATH, V) CONF }
+            )
+        ))
+    =>
+        queueManager((STRSET, PATH))
+        queue(PATH, (V))
+        service(S', server(SERV,
+            process(
+                CONN, 
+                { CONF }
+            )
+        ))
+    if not PATH in STRSET .
 
     rl [CONSUME-RESPONSE] : 
         connection(ID, S', S'', httpRequest(PATH', REQ), response(RESP))
@@ -569,6 +666,16 @@ mod SERVER-SEMANTICS is
         ))
     if not consuming(SERV, PATH) .
 
+    rl [KILL-PROCESS] :
+    service(S', server(SERV,
+        process(CONN, { 
+            < O : Executor | ATTRS, currentResult : RES, waiting : none >
+        })
+    )) 
+    =>
+    service(S', server(SERV)) . 
+
+
     op consuming : SemComponentList String -> Bool .
     eq consuming((SERV, process(messageConnection(PATH), { CONF })), PATH) = true .
     eq consuming(SERV, PATH) = false [owise] .
@@ -579,10 +686,40 @@ mod SERVER-SEMANTICS is
         service(initId(ID), server(process(dummyConnection, initiate(CODE, defaultFunctions)))) 
     .
 
-    rl initManager(ID) init(CODE) 
-    => 
-        initManager(ID + 1) 
-        service(initId(ID), server(process(dummyConnection, initiate(CODE, defaultFunctions)))) 
+    crl [GRANT-LOCK] : 
+        service(S, server(SERV,
+            locks(STRSET), 
+            process(
+                CONN, 
+                { acquireLock(PATH) CONF }
+            )
+        ))
+    =>
+        service(S, server(SERV,
+            locks((PATH, STRSET)), 
+            process(
+                CONN, 
+                { grantedLock(PATH) CONF }
+            )
+        ))
+    if not PATH in STRSET .
+
+    rl [RELEASE-LOCK] : 
+        service(S, server(SERV,
+            locks((PATH, STRSET)), 
+            process(
+                CONN, 
+                { releaseLock(PATH) CONF }
+            )
+        ))
+    =>
+        service(S, server(SERV,
+            locks(STRSET), 
+            process(
+                CONN, 
+                { CONF }
+            )
+        ))
     .
 
     rl [GET-PERSISTENT] : 
@@ -615,7 +752,7 @@ mod SERVER-SEMANTICS is
         service(S, server(SERV,
             persistent(NAME, V'), 
             process(
-                CONN, 
+                CONN,
                 { setPersistentOk CONF }
             )
         ))
@@ -682,6 +819,8 @@ mod PRINTER is
     eq printProcessStatus({ outcomingRequest(S, PATH, REQ) CONF }, N) = 'sent '\s 'request '\s 'to '\s '`[ tokenize(S) '\s '@ '\s tokenize(PATH) '`] '\s ': '\n tabs(N) printAst(upTerm(REQ)) '\s '. .
     eq printProcessStatus({ incomingResponse(RESP) CONF }, N) = 'got '\s 'response '\s ': '\s printAst(upTerm(RESP)) '\s '. .
     eq printProcessStatus({ setPersistent(S, IOVAL) CONF }, N) = 'setting '\s 'persistent '\s tokenize(S) '\s '= '\s printAst(upTerm(IOVAL)) '\s '. .
+    eq printProcessStatus({ acquireLock(S) CONF }, N) = 'acquiring '\s 'lock '\s tokenize(S) .
+    eq printProcessStatus({ releaseLock(S) CONF }, N) = 'releasing '\s 'lock '\s tokenize(S) .
     eq printProcessStatus({ setPersistentOk CONF }, N) = 'persistent '\s 'changed '\s '. .
     eq printProcessStatus({ < O : Executor | ATTRS, waiting : getPersistentValue > CONF }, N) = 'waiting '\s 'for '\s 'access '\s 'to '\s 'persistent '\s 'value .
     eq printProcessStatus({ < O : Executor | ATTRS, currentResult : RES, waiting : none > CONF }, N) = 'ended '\s 'execution .
@@ -713,6 +852,7 @@ mod COMPOSITION-TO-LANGUAGE is
     var CODE : StmtAST .
     vars VAL RESP : IOValue .
     var CONN : SemConnection .
+    var STRSET : Set{String} .
 
 
     eq toState(CONF) = toState(CONF, [ 
@@ -724,6 +864,7 @@ mod COMPOSITION-TO-LANGUAGE is
     --- eq toState(O CONF, St) = toState(CONF, St) [owise] .
     eq toState(<> CONF, St) = toState(CONF, St) .
     eq toState(initManager(ID) CONF, St) = toState(CONF, St) .
+    eq toState(queueManager(STRSET) CONF, St) = toState(CONF, St) .
     eq toState(init(CODE) CONF, St) = toState(CONF, St) .
     eq toState(none, St) = St .
     eq toState(connectionManager(ID) CONF, St) = toState(CONF, assignVar("totalConnections", intVal(ID), St)) .
@@ -1039,7 +1180,7 @@ mod COMPOSITION is
     eq subQidList(nil, I, N) = nil .
 
     op initConfig : -> Configuration .
-    eq initConfig = connectionManager(0) initManager(0) <> .
+    eq initConfig = connectionManager(0) initManager(0) queueManager(empty) <> .
 
     crl < COMP : Composition | ATTRS > parseTermFromString(COMP, O, TEXT)
     => < COMP : Composition | ATTRS > 

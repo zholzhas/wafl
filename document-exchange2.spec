@@ -2,6 +2,7 @@
 (
 service oldSystemA {
     persistent agreements = {};
+    persistent retracted = [] ;
 
     persistent correspondents = {
         companyA : "oldSystemA",
@@ -11,82 +12,82 @@ service oldSystemA {
 
     routes {
         "/ext/create" -> extCreate
-        "/ext/sign" -> extSign
-        "/ext/retract" -> extRetract
-        "/list" -> list
+        "/ext/receipt" -> extReceipt
     }
 
     code {
         function extCreate(request) {
+            lock(request . id);
             agreements = getPersistent("agreements") ;
-            agreement = request . agreement ;
+            agreement = request ;
             correspondents = [] ;
             i = 0 ;
-            while (i < len(agreement . correspondents)) {
-                if (agreement . correspondents [ i ] != "companyA") {
-                    correspondents = append(correspondents, agreement . correspondents [ i ]);
+            
+            ret = getPersistent("retracted") ;
+            while (i < len(ret)) {
+                if (ret [ i ] == agreement . id) {
+                    agreement . state = "retracted" ;
                 }
                 i = i + 1 ;
             }
-            agreement . correspondents = correspondents ;
 
             agreements[ agreement . id ] = agreement ;
             setPersistent("agreements", agreements) ;
+            unlock(request . id);
             respond(agreement) ;
         }
 
-        function sign(request) {
+        function extReceipt(request) {
+            lock(request . id);
             agreements = getPersistent("agreements") ;
             id = request . id ;
-            if (! keyExists(agreements, id)) {
-                respond("fail");
-                return 0 ;
+
+            if (keyExists(agreements, id)) {
+                agreement = agreements[id] ;
+
+                agreement . state = "retracted" ;
+                agreements[agreement . id] = agreement ;
+                setPersistent("agreements", agreements) ;
+            } else {
+                ret = getPersistent("retracted");
+                ret = append(ret, id);
+                setPersistent("retracted", ret);
             }
-            agreement = agreements[id] ;
+            unlock(request . id);
+            respond("ok");
+        }
+    }
+}
 
-            agreement . state = "signed" ;
-            agreements[agreement . id] = agreement ;
-            setPersistent("agreements", agreements) ;
+service center {
+    persistent correspondents = {
+        companyA : "oldSystemA",
+        companyB : "oldSystemB",
+        newCompany : "newCompany"
+    };
 
+    listen {
+        "newDocument" -> newDocument
+        "receipt" -> receipt
+    }
+
+    code {
+        function newDocument(request) {
             systems = getPersistent("correspondents");
             i = 0 ;
-            while ( i < len(agreement . correspondents) ) {
-                request ( systems [ agreement . correspondents [ i ] ], "/ext/sign", { id : id } ) ;
+            while ( i < len(request . correspondents) ) {
+                request ( systems [ request . correspondents [ i ] ], "/ext/create", request ) ;
                 i = i + 1 ;
             }
-            respond("ok");
         }
 
-        function extSign(request) {
-            agreements = getPersistent("agreements") ;
-            id = request . id ;
-            if (! keyExists(agreements, id)) {
-                respond("fail");
-                return 0 ;
+        function receipt(request) {
+            systems = getPersistent("correspondents");
+            i = 0 ;
+            while ( i < len(request . correspondents) ) {
+                request ( systems [ request . correspondents [ i ] ], "/ext/receipt", request ) ;
+                i = i + 1 ;
             }
-            agreement = agreements[id] ;
-
-            agreement . state = "signed" ;
-            agreements[agreement . id] = agreement ;
-            setPersistent("agreements", agreements) ;
-
-            respond("ok");
-        }
-
-        function extRetract(request) {
-            agreements = getPersistent("agreements") ;
-            id = request . id ;
-            if (! keyExists(agreements, id)) {
-                respond("fail");
-                return 0 ;
-            }
-            agreement = agreements[id] ;
-
-            agreement . state = "retracted" ;
-            agreements[agreement . id] = agreement ;
-            setPersistent("agreements", agreements) ;
-
-            respond("ok");
         }
     }
 }
@@ -94,16 +95,9 @@ service oldSystemA {
 service newSystem {
     persistent agreements = {};
 
-    persistent correspondents = {
-        companyA : "oldSystemA",
-        companyB : "oldSystemB",
-        newCompany : "newCompany"
-    };
-
     routes {
         "/create" -> create
         "/send" -> send
-        "/sign" -> sign
         "/retract" -> retract
     }
 
@@ -120,66 +114,31 @@ service newSystem {
         function send(request) {
             agreements = getPersistent("agreements") ;
             id = request . id ;
-            if (! keyExists(agreements, id)) {
-                respond("fail");
-                return 0 ;
-            }
+
             agreement = agreements[id] ;
 
-            systems = getPersistent("correspondents");
-            i = 0 ;
-            while ( i < len(agreement . correspondents) ) {
-                modified_agreement = agreement ;
-                modified_agreement . correspondents = append(agreement . correspondents, "newCompany");
-                request ( systems [ agreement . correspondents [ i ] ], "/ext/create", { agreement : modified_agreement } ) ;
-                i = i + 1 ;
-            }
+            
             agreement . state = "sent" ;
             agreements[agreement . id] = agreement ;
             setPersistent("agreements", agreements) ;
-            respond("ok");
-        }
+            
+            agreement . sender = "newCompany" ;
+            message("newDocument", agreement);
 
-        function sign(request) {
-            agreements = getPersistent("agreements") ;
-            id = request . id ;
-            if (! keyExists(agreements, id)) {
-                respond("fail");
-                return 0 ;
-            }
-            agreement = agreements[id] ;
-
-            agreement . state = "signed" ;
-            agreements[agreement . id] = agreement ;
-            setPersistent("agreements", agreements) ;
-
-            systems = getPersistent("correspondents");
-            while ( i < len(agreement . correspondents) ) {
-                request ( systems [ agreement . correspondents [ i ] ], "/ext/sign", { id : id } ) ;
-                i = i + 1 ;
-            }
             respond("ok");
         }
 
         function retract(request) {
             agreements = getPersistent("agreements") ;
             id = request . id ;
-            if (! keyExists(agreements, id)) {
-                respond("fail");
-                return 0 ;
-            }
             agreement = agreements[id] ;
 
             agreement . state = "retracted" ;
             agreements[agreement . id] = agreement ;
             setPersistent("agreements", agreements) ;
 
-            systems = getPersistent("correspondents");
-            i = 0 ;
-            while ( i < len(agreement . correspondents) ) {
-                request ( systems [ agreement . correspondents [ i ] ], "/ext/retract", { id : id } ) ;
-                i = i + 1 ;
-            }
+            message("receipt", { type : "retract", id : id, correspondents : agreement . correspondents });
+
             respond("ok");
         }
     }
@@ -193,18 +152,17 @@ init {
             correspondents : [ "companyA" ]
         }
     });
-}
-
-init {
+    
+    
     request("newSystem", "/send", {
         id : "doc1"
     }) ;
-}
 
-init {
+    
     request("newSystem", "/retract", {
         id : "doc1"
     }) ;
+    
 }
 
 
@@ -223,18 +181,20 @@ props {
                 agreement = agreements[id] ;        
                 retracted = retracted || agreement . state == "retracted" ;
             }
+            i = i + 1 ;
         }
         assert(retracted) ;
     }
 
     function retractedAll(id) {
-        services = [ "newSystem", "oldSystemA" ];
+        serviceNames = [ "newSystem", "oldSystemA" ];
         i = 0 ;
         retracted = true ;
-        while (i < len(services)) {
-            agreements = services[services[i]] . persistents . agreements ;
+        while (i < len(serviceNames)) {
+            agreements = services[serviceNames[i]] . persistents . agreements ;
             agreement = agreements[id] ;
             retracted = retracted && agreement . state == "retracted" ;
+            i = i + 1 ;
         }
         assert(retracted) ;
     }

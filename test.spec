@@ -1,8 +1,19 @@
+(service backend {
+    listen {
+        "a" -> login
+        "b" -> login
+    }
+
+    code {
+        function login(request) {
+            lock("a");
+            unlock("a");
+        }
+    }
+}
+
 
 init {
-    user = {
-        type : "guest",
-        session : "session-0"
-    };
-    request("backend", "/login", { user : user, user_id : "0" });
-}
+    message("a", "1");
+    message("b", "2");
+})
