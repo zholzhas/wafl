@@ -1,14 +1,8 @@
 
 (
-service oldSystemA {
+service systemA {
     persistent agreements = {};
     persistent retracted = [] ;
-
-    persistent correspondents = {
-        companyA : "oldSystemA",
-        companyB : "oldSystemB",
-        newCompany : "newCompany"
-    };
 
     routes {
         "/ext/create" -> extCreate
@@ -17,7 +11,7 @@ service oldSystemA {
 
     code {
         function extCreate(request) {
-            lock(request . id);
+            --- lock(request . id);
             agreements = getPersistent("agreements") ;
             agreement = request ;
             correspondents = [] ;
@@ -33,7 +27,7 @@ service oldSystemA {
 
             agreements[ agreement . id ] = agreement ;
             setPersistent("agreements", agreements) ;
-            unlock(request . id);
+            --- unlock(request . id);
             respond(agreement) ;
         }
 
@@ -48,7 +42,8 @@ service oldSystemA {
                 agreement . state = "retracted" ;
                 agreements[agreement . id] = agreement ;
                 setPersistent("agreements", agreements) ;
-            } else {
+            } 
+            else {
                 ret = getPersistent("retracted");
                 ret = append(ret, id);
                 setPersistent("retracted", ret);
@@ -59,11 +54,10 @@ service oldSystemA {
     }
 }
 
-service center {
+service centre {
     persistent correspondents = {
-        companyA : "oldSystemA",
-        companyB : "oldSystemB",
-        newCompany : "newCompany"
+        companyA : "systemA",
+        newCompany : "systemB"
     };
 
     listen {
@@ -92,7 +86,7 @@ service center {
     }
 }
 
-service newSystem {
+service systemB {
     persistent agreements = {};
 
     routes {
@@ -116,8 +110,6 @@ service newSystem {
             id = request . id ;
 
             agreement = agreements[id] ;
-
-            
             agreement . state = "sent" ;
             agreements[agreement . id] = agreement ;
             setPersistent("agreements", agreements) ;
@@ -146,23 +138,18 @@ service newSystem {
 
 
 init {
-    request("newSystem", "/create", {
+    request("systemB", "/create", {
         agreement : {
             id : "doc1",
             correspondents : [ "companyA" ]
         }
     });
-    
-    
-    request("newSystem", "/send", {
+    request("systemB", "/send", {
         id : "doc1"
     }) ;
-
-    
-    request("newSystem", "/retract", {
+    request("systemB", "/retract", {
         id : "doc1"
     }) ;
-    
 }
 
 
@@ -172,14 +159,13 @@ props {
     }
 
     function retractedAny(id) {
-        serviceNames = [ "newSystem", "oldSystemA" ];
+        serviceNames = [ "systemB", "systemA" ];
         i = 0 ;
         retracted = false ;
         while (i < len(serviceNames)) {
             agreements = services[serviceNames[i]] . persistents . agreements ;
-            if (keyExists(agreements, id)) {
-                agreement = agreements[id] ;        
-                retracted = retracted || agreement . state == "retracted" ;
+            if (keyExists(agreements, id)) {    
+                retracted = retracted || agreements[id] . state == "retracted" ;
             }
             i = i + 1 ;
         }
@@ -187,7 +173,7 @@ props {
     }
 
     function retractedAll(id) {
-        serviceNames = [ "newSystem", "oldSystemA" ];
+        serviceNames = [ "systemB", "systemA" ];
         i = 0 ;
         retracted = true ;
         while (i < len(serviceNames)) {
@@ -201,4 +187,3 @@ props {
 
 }
 )
-

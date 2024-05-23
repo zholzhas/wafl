@@ -1,0 +1,47 @@
+--- orchestration.wafl
+(
+service bankWeb {
+    routes {
+        "/purchase" -> transactionStart
+    }
+    code {
+        function transactionStart(request) {
+            status = request("balanceService", "/updateBalance", { amount : request . amount });
+            respond(status);
+        }
+    }
+}
+
+service balanceService {
+    routes {
+        "/updateBalance" -> updateBalance
+    }
+    persistent balance = 1000 ;
+    code {
+        function updateBalance(request) {
+            --- lock("a");
+            amount = getPersistent("balance");
+            amount = amount - request . amount ;
+            setPersistent("balance", amount);
+            --- unlock("a");
+            respond("OK");
+        }
+    }
+}
+
+init {
+    request("bankWeb", "/purchase", { amount : 500 });
+}
+init {
+    request("bankWeb", "/purchase", { amount : 500 });
+}
+
+props {
+    function total(amount) {
+        assert(
+            services . balanceService . persistents . balance == amount
+        );
+    }
+}
+)
+(ltl check <> [] total(0))

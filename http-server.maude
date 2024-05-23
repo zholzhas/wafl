@@ -255,7 +255,7 @@ mod LANG-EXECUTION is
     var STACK : Stack .
     var CODE : StmtAST .
     var ATTRS : AttributeSet .
-
+    
     eq initiate(CODE, FUNCS) = {< executor : Executor | 
             currentResult : {void, getState(evalStmt(CODE, [ FUNCS | empty | stack(0, empty) ]))}, 
             initialState : getState(evalStmt(CODE, [ FUNCS | empty | stack(0, empty) ])),

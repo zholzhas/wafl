@@ -31,6 +31,7 @@ fmod LANG-SYNTAX is
     op _-_ : Expr Expr -> Expr [gather (e E) prec 33] .
     op _*_ : Expr Expr -> Expr [gather (e E) prec 31] .
     op _/_ : Expr Expr -> Expr [gather (e E) prec 31] .
+    op -_ : Expr -> Expr .
 
     op _==_ : Expr Expr -> Expr [gather (e e) prec 51] .
     op _!=_ : Expr Expr -> Expr [gather (e e) prec 51] .
@@ -96,8 +97,9 @@ fmod LANG-AST is
     op _;_ : StmtAST StmtAST -> StmtAST [ctor assoc id: pass] .
 
     ops $add $sub $mult $div $gt $ge $lt $le $and $or $eq $ne : ExprAST ExprAST -> ExprAST [ctor] . --- binary operations
-    op assign : ExprAST ExprAST -> StmtAST [ctor] . --- =
-    op $ifelse : ExprAST StmtAST StmtAST -> StmtAST [ctor] .
+    ops $neg : ExprAST -> ExprAST [ctor] . --- unary operations
+    op assign : ExprAST ExprAST -> StmtAST [ctor] . --- assignment
+    op $ifelse : ExprAST StmtAST StmtAST -> StmtAST [ctor] . --- conditional branching
     op $while : ExprAST StmtAST -> StmtAST [ctor] .
     
     op str : String -> ExprAST [ctor] . --- string literal
@@ -439,13 +441,14 @@ fmod LANG-SEMANTICS is
     --- evaluate addition as integer addition if both values are integers
     ceq evalExpr($add(E, E1), St) = { intVal(getInt(getValue(evalExpr(E, St))) + getInt(getValue(evalExpr(E1, St)))), St }
         if isInt(evalExpr(E, St)) and isInt(evalExpr(E1, St)) .
-    --- ceq evalExpr($sub(E, E1), St) = { intVal(getInt(getValue(evalExpr(E, St))) - getInt(getValue(evalExpr(E1, St)))), St }
-    ---     if isInt(evalExpr(E, St)) and isInt(evalExpr(E1, St)) .
+    ceq evalExpr($sub(E, E1), St) = { intVal(getInt(getValue(evalExpr(E, St))) - getInt(getValue(evalExpr(E1, St)))), St }
+        if isInt(evalExpr(E, St)) and isInt(evalExpr(E1, St)) .
     ceq evalExpr($mult(E, E1), St) = { intVal(getInt(getValue(evalExpr(E, St))) * getInt(getValue(evalExpr(E1, St)))), St }
         if isInt(evalExpr(E, St)) and isInt(evalExpr(E1, St)) .
     ceq evalExpr($div(E, E1), St) = { floatVal(toFloat(getInt(getValue(evalExpr(E, St)))) / toFloat(getInt(getValue(evalExpr(E1, St))))), St }
         if isInt(evalExpr(E, St)) and isInt(evalExpr(E1, St)) .
-
+    ceq evalExpr($neg(E), St) = { intVal(- getInt(getValue(evalExpr(E, St)))), St }
+        if isInt(evalExpr(E, St)) .
         
     ceq evalExpr($add(E, E1), St) = { floatVal(toFloat(getFloat(getValue(evalExpr(E, St)))) + toFloat(getFloat(getValue(evalExpr(E1, St))))), St }
         if (isFloat(evalExpr(E, St)) and isNum(evalExpr(E1, St))) or (isFloat(evalExpr(E1, St)) and isNum(evalExpr(E, St))) .
@@ -467,6 +470,9 @@ fmod LANG-SEMANTICS is
         if isInt(evalExpr(E, St)) and isInt(evalExpr(E1, St)) .
     
     ceq evalExpr($gt(E, E1), St) = { boolVal(getInt(getValue(evalExpr(E, St))) > getInt(getValue(evalExpr(E1, St)))), St }
+        if isInt(evalExpr(E, St)) and isInt(evalExpr(E1, St)) .
+    
+    ceq evalExpr($ge(E, E1), St) = { boolVal(getInt(getValue(evalExpr(E, St))) >= getInt(getValue(evalExpr(E1, St)))), St }
         if isInt(evalExpr(E, St)) and isInt(evalExpr(E1, St)) .
 
     eq evalExpr($and(E, E1), St) = { boolVal(getBool(getValue(evalExpr(E, St))) and getBool(getValue(evalExpr(E1, getState(evalExpr(E, St)))))), getState(evalExpr(E1, getState(evalExpr(E, St)))) } .
@@ -917,6 +923,7 @@ fmod LANG is
     eq process('_-_[T, T1]) = $sub(process(T), process(T1)) .
     eq process('_*_[T, T1]) = $mult(process(T), process(T1)) .
     eq process('_/_[T, T1]) = $div(process(T), process(T1)) .
+    eq process('-_[T]) = $neg(process(T)) .
     eq process('_==_[T, T1]) = $eq(process(T), process(T1)) .
     eq process('_!=_[T, T1]) = $ne(process(T), process(T1)) .
     eq process('_>_[T, T1]) = $gt(process(T), process(T1)) .

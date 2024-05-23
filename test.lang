@@ -1,9 +1,0 @@
-
-a = { } ;
-b = "aa" ;
-a[b] = 1 ;
-if (keyExists(a, b)) {
-    write("aaa");
-} else {
-    write("bbb");
-}
